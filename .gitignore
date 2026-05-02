@@ -1,0 +1,15 @@
+.env
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated working data
+data/work/
+data/work/*.sqlite
+data/work/*.sqlite-*
+output/
+
+# Local scratch
+scratch/

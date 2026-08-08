@@ -25,6 +25,8 @@ resume refuses and requires a new run ID.
 - 48,000 maximum Opus output/thinking tokens per unit; billing follows actual use
 - grammar-constrained Anthropic JSON outputs for draft, revision, repair, and
   model-resolved refrains
+- Gemini supports either file batches or checkpointed synchronous requests; the
+  chosen transport is frozen in the run manifest
 
 The shared production prompt and ledger use Anthropic's one-hour cache breakpoint.
 Every result is mapped by stable unit ID and must cover the exact expected ayah list.
@@ -94,10 +96,13 @@ drafts from an earlier run:
 PYTHONPATH=src caffeinate -dimsu .venv/bin/python \
   -m quran_translate.production_runner \
   --run-id production_v24_1_full \
-  --seed-drafts-from production_v24_full
+  --seed-drafts-from production_v24_full \
+  --gemini-transport sync
 ```
 
 Seeding verifies the source, morphology, prompt, ledgers, refrain policy, model, and
 unit boundaries; contract-valid drafts are copied with source hashes into
 `DRAFT_SEED.json`. Missing or invalid drafts are submitted normally. Later resumes
-must use the same seed argument because it is frozen in the target manifest.
+must use the same seed and Gemini transport arguments because they are frozen in the
+target manifest. Synchronous Gemini responses are checkpointed per unit before
+contract validation, so interruption never requires replaying completed units.

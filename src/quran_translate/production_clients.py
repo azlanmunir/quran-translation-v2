@@ -279,6 +279,44 @@ class GeminiBatchClient:
         return rows
 
 
+class GeminiSynchronousClient:
+    """Checkpoint-friendly synchronous Gemini transport for projects without batch quota."""
+
+    def __init__(self, api_key: str) -> None:
+        if not api_key:
+            raise ProviderError("GOOGLE_API_KEY is missing")
+        try:
+            from google import genai
+        except ImportError as exc:  # pragma: no cover - environment setup.
+            raise ProviderError("Install google-genai before running production") from exc
+        self.client = genai.Client(api_key=api_key)
+
+    def generate(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        response_schema: dict[str, Any],
+        max_output_tokens: int,
+    ) -> dict[str, Any]:
+        try:
+            response = self.client.models.generate_content(
+                model=model,
+                contents=user,
+                config={
+                    "system_instruction": system,
+                    "response_mime_type": "application/json",
+                    "response_schema": response_schema,
+                    "max_output_tokens": max_output_tokens,
+                    "temperature": 0,
+                },
+            )
+        except Exception as exc:  # SDK error hierarchy changes across releases.
+            raise ProviderError(f"Gemini synchronous request failed: {exc}") from exc
+        return {"response": _model_dump(response)}
+
+
 def _gemini_state_name(job: Any) -> str:
     state = getattr(job, "state", None)
     name = getattr(state, "name", None)

@@ -18,6 +18,7 @@ from quran_translate.production_runner import (
     ProductionConfig,
     ProductionError,
     run_anthropic_stage,
+    run_gemini_stage,
     run_production,
     seed_draft_artifacts,
     validate_critic_response,
@@ -144,6 +145,41 @@ class FakeGeminiBatchClient:
                 }
             )
         return rows
+
+
+class FakeGeminiSynchronousClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, **_kwargs) -> dict:
+        self.calls += 1
+        return {
+            "response": {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        [
+                                            {
+                                                "ayah": 1,
+                                                "findings": [],
+                                                "verdict": "pass",
+                                            }
+                                        ]
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 10,
+                    "candidatesTokenCount": 5,
+                },
+            }
+        }
 
 
 class FlakyRefrainClient(FakeAnthropicBatchClient):
@@ -480,6 +516,51 @@ class ProductionRunnerTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual("new-generation-hash", imported["input_hash"])
             self.assertEqual("source_run", imported["imported_from"]["run_id"])
+
+    def test_gemini_sync_stage_checkpoints_and_reuses_response(self) -> None:
+        unit = ProductionUnit("s001_001_001", 1, 1, 1, 1, 1, 1)
+        client = FakeGeminiSynchronousClient()
+        reader = [{"ayah": 1, "english": "The opening."}]
+
+        def assignment(_unit: ProductionUnit, _attempt: int):
+            return (
+                "Audit this translation.",
+                {"reader": reader},
+                lambda data: validate_critic_response(
+                    data, [1], reader, {1: "النص"}
+                ),
+            )
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            run_gemini_stage(
+                base=base,
+                stage="critic",
+                units=[unit],
+                shard_size=10,
+                poll_seconds=0,
+                system="system",
+                assignment=assignment,
+                client=client,
+                transport="sync",
+            )
+            artifact = base / "units" / unit.unit_id / "critic.json"
+            self.assertTrue(artifact.exists())
+            self.assertEqual(1, client.calls)
+            artifact.unlink()
+            run_gemini_stage(
+                base=base,
+                stage="critic",
+                units=[unit],
+                shard_size=10,
+                poll_seconds=0,
+                system="system",
+                assignment=assignment,
+                client=client,
+                transport="sync",
+            )
+            self.assertTrue(artifact.exists())
+            self.assertEqual(1, client.calls)
 
     def test_refrain_contract_failure_retries_only_failed_groups(self) -> None:
         client = FlakyRefrainClient()

@@ -44,6 +44,7 @@ from .production_clients import (
     AnthropicBatchClient,
     BatchState,
     GeminiBatchClient,
+    GeminiSynchronousClient,
     ProviderError,
     anthropic_result_text,
 )
@@ -90,6 +91,8 @@ DEFAULT_SHARD_SIZE = 254
 ANTHROPIC_MAX_TOKENS = 48_000
 ANTHROPIC_EFFORT = "high"
 GEMINI_MAX_TOKENS = 20_000
+GEMINI_TRANSPORTS = {"batch", "sync"}
+GEMINI_SYNC_DELAY_SECONDS = 0.5
 CONTRACT_ATTEMPTS = 2
 POLL_SECONDS = 60
 
@@ -193,6 +196,7 @@ class ProductionConfig:
     shard_size: int = DEFAULT_SHARD_SIZE
     poll_seconds: int = POLL_SECONDS
     seed_drafts_from: str | None = None
+    gemini_transport: str = "batch"
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -509,6 +513,10 @@ def prepare_production(
     conn: sqlite3.Connection,
     config: ProductionConfig,
 ) -> tuple[Path, list[ProductionUnit], dict[tuple[int, int], str]]:
+    if config.gemini_transport not in GEMINI_TRANSPORTS:
+        raise ProductionError(
+            f"Unsupported Gemini transport: {config.gemini_transport}"
+        )
     init_db(conn)
     source_issues = [issue for issue in validate_source(conn) if issue.severity == "error"]
     if source_issues:
@@ -1017,6 +1025,135 @@ def _gemini_text(row: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return text, usage if isinstance(usage, dict) else {}
 
 
+def run_gemini_sync_stage(
+    *,
+    base: Path,
+    stage: str,
+    units: list[ProductionUnit],
+    system: str,
+    assignment: Callable[[ProductionUnit, int], tuple[str, Any, Callable[[Any], Any]]],
+    client: GeminiSynchronousClient,
+    response_schema: dict[str, Any],
+) -> None:
+    for attempt in range(1, CONTRACT_ATTEMPTS + 1):
+        attempt_units = (
+            list(units)
+            if attempt == 1
+            else [
+                unit
+                for unit in units
+                if (
+                    unit_dir(base, unit)
+                    / f"{stage}-attempt{attempt - 1}-FAILED.json"
+                ).exists()
+                and not artifact_path(base, unit, stage).exists()
+            ]
+        )
+        for unit in attempt_units:
+            user, hash_payload, validator = assignment(unit, attempt)
+            input_hash = _stage_input_hash(stage, unit, hash_payload)
+            cached = load_artifact(
+                artifact_path(base, unit, stage), input_hash, validator
+            )
+            if cached is not None:
+                continue
+            if attempt > 1:
+                user += (
+                    "\n\nRETRY: The prior response failed the registered JSON "
+                    "contract. Return only the requested schema with exact ayah "
+                    "coverage and permitted fields."
+                )
+            request_payload = {
+                "model": GEMINI_MODEL,
+                "system": system,
+                "user": user,
+                "response_schema": response_schema,
+                "max_output_tokens": GEMINI_MAX_TOKENS,
+                "temperature": 0,
+            }
+            request_hash = stable_hash(request_payload)
+            job_path = (
+                base / "jobs" / f"{stage}-sync-a{attempt}-{unit.unit_id}.json"
+            )
+            if job_path.exists():
+                job = json.loads(job_path.read_text(encoding="utf-8"))
+                if job.get("request_hash") != request_hash:
+                    raise ProductionError(f"Provider job input mismatch: {job_path}")
+                row = job.get("row")
+                if not isinstance(row, dict):
+                    raise ProductionError(f"Gemini sync job lacks response: {job_path}")
+            else:
+                try:
+                    row = client.generate(
+                        model=GEMINI_MODEL,
+                        system=system,
+                        user=user,
+                        response_schema=response_schema,
+                        max_output_tokens=GEMINI_MAX_TOKENS,
+                    )
+                except ProviderError as exc:
+                    atomic_json(
+                        unit_dir(base, unit) / f"{stage}-attempt{attempt}-FAILED.json",
+                        {
+                            "input_hash": input_hash,
+                            "attempt": attempt,
+                            "error": str(exc),
+                        },
+                    )
+                    continue
+                atomic_json(
+                    job_path,
+                    {
+                        "provider": "google",
+                        "transport": "sync",
+                        "stage": stage,
+                        "attempt": attempt,
+                        "unit_id": unit.unit_id,
+                        "request_hash": request_hash,
+                        "state": "succeeded",
+                        "completed_at": utc_now(),
+                        "row": row,
+                    },
+                )
+            try:
+                raw, usage = _gemini_text(row)
+                result = validator(extract_json(raw))
+            except (ProviderError, json.JSONDecodeError, TypeError, ValueError):
+                result = None
+                raw = json.dumps(row, ensure_ascii=False)
+                usage = {}
+            if result is None:
+                atomic_json(
+                    unit_dir(base, unit) / f"{stage}-attempt{attempt}-FAILED.json",
+                    {
+                        "input_hash": input_hash,
+                        "attempt": attempt,
+                        "raw": raw,
+                        "usage": usage,
+                    },
+                )
+                continue
+            atomic_json(
+                artifact_path(base, unit, stage),
+                {
+                    "input_hash": input_hash,
+                    "model": GEMINI_MODEL,
+                    "transport": "sync",
+                    "attempt": attempt,
+                    "usage": usage,
+                    "result": result,
+                    "raw": raw,
+                },
+            )
+            time.sleep(GEMINI_SYNC_DELAY_SECONDS)
+    pending = [unit for unit in units if not artifact_path(base, unit, stage).exists()]
+    if pending:
+        raise ProductionError(
+            f"{stage} contract failed twice for: "
+            + ", ".join(unit.unit_id for unit in pending)
+        )
+
+
 def run_gemini_stage(
     *,
     base: Path,
@@ -1026,9 +1163,23 @@ def run_gemini_stage(
     poll_seconds: int,
     system: str,
     assignment: Callable[[ProductionUnit, int], tuple[str, Any, Callable[[Any], Any]]],
-    client: GeminiBatchClient,
+    client: GeminiBatchClient | GeminiSynchronousClient,
+    transport: str = "batch",
     response_schema: dict[str, Any] = CRITIC_JSON_SCHEMA,
 ) -> None:
+    if transport == "sync":
+        run_gemini_sync_stage(
+            base=base,
+            stage=stage,
+            units=units,
+            system=system,
+            assignment=assignment,
+            client=client,  # type: ignore[arg-type]
+            response_schema=response_schema,
+        )
+        return
+    if transport != "batch":
+        raise ProductionError(f"Unsupported Gemini transport: {transport}")
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
         attempt_units = (
             list(units)
@@ -1409,7 +1560,11 @@ def run_production(
 
     load_environment()
     anthropic = AnthropicBatchClient(os.environ.get("ANTHROPIC_API_KEY", ""))
-    gemini = GeminiBatchClient(os.environ.get("GOOGLE_API_KEY", ""))
+    gemini: GeminiBatchClient | GeminiSynchronousClient
+    if config.gemini_transport == "sync":
+        gemini = GeminiSynchronousClient(os.environ.get("GOOGLE_API_KEY", ""))
+    else:
+        gemini = GeminiBatchClient(os.environ.get("GOOGLE_API_KEY", ""))
     prompt, ledger_md, ledger_json = prompt_material()
     draft_system = cached_system_blocks(DRAFT_SYSTEM, prompt, ledger_md, ledger_json)
     revision_system = cached_system_blocks(
@@ -1473,6 +1628,7 @@ def run_production(
         poll_seconds=config.poll_seconds,
         system=critic_system,
         client=gemini,
+        transport=config.gemini_transport,
         assignment=lambda unit, _attempt: (
             critic_assignment(
                 shared_by_unit[unit.unit_id], _draft_reader(base, unit)
@@ -1532,6 +1688,7 @@ def run_production(
         poll_seconds=config.poll_seconds,
         system=critic_system,
         client=gemini,
+        transport=config.gemini_transport,
         assignment=lambda unit, _attempt: (
             critic_assignment(
                 shared_by_unit[unit.unit_id],
@@ -1599,6 +1756,7 @@ def run_production(
         poll_seconds=config.poll_seconds,
         system=critic_system,
         client=gemini,
+        transport=config.gemini_transport,
         assignment=lambda unit, _attempt: (
             critic_assignment(shared_by_unit[unit.unit_id], _final_reader(base, unit))
             + "\n\nThis is the final fidelity check after the bounded repair. "
@@ -1664,6 +1822,7 @@ def run_production(
         poll_seconds=config.poll_seconds,
         system=critic_system,
         client=gemini,
+        transport=config.gemini_transport,
         assignment=lambda unit, _attempt: (
             critic_assignment(
                 shared_by_unit[unit.unit_id],
@@ -1698,6 +1857,7 @@ def run_production(
         poll_seconds=config.poll_seconds,
         system=spoken_system,
         client=gemini,
+        transport=config.gemini_transport,
         response_schema=SPOKEN_ENGLISH_SCHEMA,
         assignment=lambda unit, _attempt: (
             f"{shared_by_unit[unit.unit_id]}\n\n=== FINAL ENGLISH TO CHECK ===\n"
@@ -1779,6 +1939,12 @@ def parse_args() -> argparse.Namespace:
         "--seed-drafts-from",
         help="Reuse only validated draft artifacts from this compatible run ID",
     )
+    parser.add_argument(
+        "--gemini-transport",
+        choices=sorted(GEMINI_TRANSPORTS),
+        default="batch",
+        help="Use Gemini file batches or checkpointed synchronous requests",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--status", action="store_true")
     return parser.parse_args()
@@ -1794,6 +1960,7 @@ def main() -> None:
         shard_size=args.shard_size,
         poll_seconds=args.poll_seconds,
         seed_drafts_from=args.seed_drafts_from,
+        gemini_transport=args.gemini_transport,
     )
     with connect(args.db) as conn:
         base, units, _verses = prepare_production(conn, config)

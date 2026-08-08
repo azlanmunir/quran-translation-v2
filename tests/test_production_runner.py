@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from quran_translate.config import DEFAULT_SOURCE_XML
 from quran_translate.db import init_db
-from quran_translate.production_clients import BatchState
+from quran_translate.production_clients import BatchState, _json_safe
 from quran_translate.production_packets import ProductionUnit, build_units, source_verses
 from quran_translate.production_refrains import resolve_refrains
 from quran_translate.production_runner import (
@@ -253,6 +253,17 @@ class ProductionRunnerTests(unittest.TestCase):
         init_db(conn)
         import_tanzil_xml(conn, DEFAULT_SOURCE_XML)
         return conn
+
+    def test_google_payload_bytes_are_checkpoint_serializable(self) -> None:
+        safe = _json_safe(
+            {"candidates": [{"content": {"parts": [{"thought_signature": b"sig"}]}}]}
+        )
+        json.dumps(safe)
+        encoded = safe["candidates"][0]["content"]["parts"][0][
+            "thought_signature"
+        ]
+        self.assertEqual("base64", encoded["encoding"])
+        self.assertEqual("c2ln", encoded["data"])
 
     def test_units_cover_full_source_once_with_frozen_boundaries(self) -> None:
         conn = self.make_source_db()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import http.client
 import json
 import ssl
@@ -329,9 +330,21 @@ def _model_dump(value: Any) -> dict[str, Any]:
         if callable(method):
             result = method()
             if isinstance(result, dict):
-                return result
+                return _json_safe(result)
     try:
         payload = json.loads(str(value))
     except json.JSONDecodeError:
         payload = {"repr": repr(value)}
-    return payload if isinstance(payload, dict) else {"value": payload}
+    return _json_safe(payload) if isinstance(payload, dict) else {"value": payload}
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return {"encoding": "base64", "data": base64.b64encode(value).decode("ascii")}
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)

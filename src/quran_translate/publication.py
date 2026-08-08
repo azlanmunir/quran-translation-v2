@@ -12,11 +12,18 @@ from pathlib import Path
 from .config import OUTPUT_DIR
 from .db import utc_now
 from .metadata import SURAHS
-from .validation import BANNED_TERMS, ValidationIssue
+from .validation import BANNED_TERMS, PRODUCTION_V24_BANNED_TERMS, ValidationIssue
 
 
 PUBLICATION_DIR = OUTPUT_DIR / "publication"
 PUBLICATION_BANNED_TERMS = tuple(sorted(set(BANNED_TERMS + ("messengers",))))
+
+
+def is_production_v24(conn: sqlite3.Connection, run_id: str) -> bool:
+    row = conn.execute(
+        "SELECT prompt_version FROM translation_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    return bool(row and str(row["prompt_version"]).startswith("production-v2.4"))
 
 
 @dataclass(frozen=True)
@@ -186,6 +193,7 @@ def publication_rows(conn: sqlite3.Connection, run_id: str) -> list[sqlite3.Row]
 
 def build_publication_layer(conn: sqlite3.Connection, run_id: str) -> dict[str, object]:
     rows = source_translation_rows(conn, run_id)
+    identity_policy = is_production_v24(conn, run_id)
     now = utc_now()
     edit_counter: Counter[str] = Counter()
     changed_count = 0
@@ -193,7 +201,11 @@ def build_publication_layer(conn: sqlite3.Connection, run_id: str) -> dict[str, 
     with conn:
         conn.execute("DELETE FROM publication_translations WHERE run_id = ?", (run_id,))
         for row in rows:
-            result = cleanup_translation(str(row["translation"]))
+            result = (
+                CleanupResult(str(row["translation"]), ())
+                if identity_policy
+                else cleanup_translation(str(row["translation"]))
+            )
             changed = int(result.text != row["translation"])
             if changed:
                 changed_count += 1
@@ -230,6 +242,11 @@ def build_publication_layer(conn: sqlite3.Connection, run_id: str) -> dict[str, 
         "ayahs": len(rows),
         "changed_ayahs": changed_count,
         "edit_categories": dict(sorted(edit_counter.items())),
+        "policy": (
+            "identity_from_audited_production_text"
+            if identity_policy
+            else "legacy_audited_cleanup"
+        ),
     }
 
 
@@ -251,7 +268,14 @@ def validate_publication(conn: sqlite3.Connection, run_id: str) -> list[Validati
             )
         )
 
-    banned_re = re.compile(r"\b(" + "|".join(re.escape(term) for term in PUBLICATION_BANNED_TERMS) + r")\b", re.I)
+    banned_terms = (
+        PRODUCTION_V24_BANNED_TERMS
+        if is_production_v24(conn, run_id)
+        else PUBLICATION_BANNED_TERMS
+    )
+    banned_re = re.compile(
+        r"\b(" + "|".join(re.escape(term) for term in banned_terms) + r")\b", re.I
+    )
     bracket_re = re.compile(r"\[[^\]]+\]")
     for row in publication_rows(conn, run_id):
         text = row["translation"]
@@ -283,7 +307,11 @@ def export_publication_json(conn: sqlite3.Connection, run_id: str, output_dir: P
     payload = {
         "run_id": run_id,
         "source": "Tanzil Quran Text, Uthmani Minimal, Version 1.1",
-        "publication_policy": "Raw Gemini output is preserved in translations; this publication layer applies audited style cleanup only.",
+        "publication_policy": (
+            "Audited v2.4 production text is preserved verbatim in the publication layer."
+            if is_production_v24(conn, run_id)
+            else "Raw Gemini output is preserved in translations; this publication layer applies audited style cleanup only."
+        ),
         "ayahs": [
             {
                 "ref": row["verse_key"],

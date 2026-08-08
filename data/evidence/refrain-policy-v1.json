@@ -1,0 +1,7 @@
+{
+  "version": "refrain-policy-v1",
+  "enumeration": "Groups are discovered mechanically from normalized Tanzil ayah text. This file records adjudicated English by Arabic hash, never hand-maintained reference lists.",
+  "canonical": {
+    "55663e8a01b73bc8424318c724a5ff05f429dd0763efd9716da426eea968d344": "So which of your Master's favors do you two deny?"
+  }
+}

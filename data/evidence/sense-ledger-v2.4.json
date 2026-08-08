@@ -1,0 +1,475 @@
+{
+  "version": "2.4",
+  "status": "approved_after_force_review",
+  "principles": [
+    "A root constrains lexical relationships but does not determine contextual sense.",
+    "Construction, syntax, immediate context, and intra-Quranic contrast outrank root imagery.",
+    "Render settled religious vocabulary plainly when that is what the context conveys.",
+    "A default is never a universal substitution; context selects among recorded senses.",
+    "Do not turn editorial rationale into a historical note for readers."
+  ],
+  "entries": [
+    {
+      "id": "SL-AMN",
+      "terms": ["āmana", "īmān", "muʾmin"],
+      "root": "أمن",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "amana-bi-believe-in",
+          "condition": "Form IV verb with bi- introducing God, the Last Day, scripture, messengers, signs, or another propositional object",
+          "rendering": "believe in",
+          "evidence_ids": ["QAC-9-61", "QAC-24-2", "LANE-AMN"]
+        },
+        {
+          "sense_id": "amana-li-credit",
+          "condition": "Form IV verb with li- introducing a person or testimony",
+          "rendering": "believe; give credence to",
+          "evidence_ids": ["QAC-9-61"]
+        },
+        {
+          "sense_id": "mumin-participant",
+          "condition": "Active participle naming members of the believing community",
+          "rendering": "believer; those who believe",
+          "evidence_ids": ["QAC-24-2", "LANE-AMN"]
+        },
+        {
+          "sense_id": "security-trust",
+          "condition": "Only where the syntax and immediate context concern safety, security, entrusting, or giving assurance",
+          "rendering": "trust; make safe; grant security",
+          "evidence_ids": ["LANE-AMN"]
+        }
+      ],
+      "prohibited_default": "Do not render belief constructions as entrusting oneself unless the context independently activates trust or security."
+    },
+    {
+      "id": "SL-DIN",
+      "terms": ["dīn", "yawm al-dīn"],
+      "root": "دين",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "day-judgment",
+          "condition": "The fixed expression yawm al-dīn and eschatological repayment contexts",
+          "rendering": "the Day of Judgment; the Day of Reckoning",
+          "evidence_ids": ["QAC-DYN"]
+        },
+        {
+          "sense_id": "governing-law",
+          "condition": "A ruler's or God's binding order in an immediate legal context, including 12:76 and 24:2",
+          "rendering": "law",
+          "evidence_ids": ["QAC-12-76", "QAC-24-2", "LANE-DYN"]
+        },
+        {
+          "sense_id": "religion",
+          "condition": "A named communal, doctrinal, or worship system",
+          "rendering": "religion",
+          "evidence_ids": ["QAC-DYN", "LANE-DYN"]
+        },
+        {
+          "sense_id": "devotion-obedience",
+          "condition": "The passage foregrounds service, obedience, or exclusive devotion rather than a named system",
+          "rendering": "devotion; obedience",
+          "evidence_ids": ["LANE-DYN"]
+        }
+      ],
+      "prohibited_default": "Do not use 'way of allegiance' or 'debt' as a global rendering."
+    },
+    {
+      "id": "SL-ZNY",
+      "terms": ["zinā", "zānī", "zāniyah"],
+      "root": "زني",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "illicit-intercourse",
+          "condition": "All Quranic occurrences",
+          "rendering": "unlawful sex; one who has unlawful sex",
+          "evidence_ids": ["QAC-24-2", "LANE-ZNY"]
+        }
+      ],
+      "prohibited_default": "Do not use 'fornication' as the sole English term; modern English often limits it to unmarried people and can exclude adultery."
+    },
+    {
+      "id": "SL-KTB",
+      "terms": ["kitāb", "kataba", "kutiba ʿalaykum"],
+      "root": "كتب",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "revealed-scripture",
+          "condition": "A revealed text or recognized sacred writing",
+          "rendering": "Scripture; Book",
+          "evidence_ids": ["QAC-KTB"]
+        },
+        {
+          "sense_id": "record",
+          "condition": "A written account, register, or personal record",
+          "rendering": "record",
+          "evidence_ids": ["QAC-KTB"]
+        },
+        {
+          "sense_id": "letter-document",
+          "condition": "A human letter or document, such as 27:28",
+          "rendering": "letter; document",
+          "evidence_ids": ["QAC-KTB"]
+        },
+        {
+          "sense_id": "obligation-formula",
+          "condition": "Passive kutiba with ʿalā in a legal obligation formula",
+          "rendering": "is prescribed; is required",
+          "evidence_ids": ["QAC-2-183", "QAC-KTB"]
+        },
+        {
+          "sense_id": "literal-writing",
+          "condition": "The passage concerns the physical act of writing",
+          "rendering": "write; writing",
+          "evidence_ids": ["QAC-KTB"]
+        }
+      ],
+      "prohibited_default": "Do not force 'the Writ' or 'written for you' where writing is lexicalized as scripture, record, decree, or obligation."
+    },
+    {
+      "id": "SL-WHY",
+      "terms": ["waḥy", "awḥā", "yūḥā"],
+      "root": "وحي",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "prophetic-revelation",
+          "condition": "God communicates revelation to a prophet or the passage names revealed content",
+          "rendering": "reveal; revelation",
+          "evidence_ids": ["QURAN-20-13", "QURAN-42-13"]
+        },
+        {
+          "sense_id": "inspiration",
+          "condition": "Divine direction to a non-prophetic recipient, including Moses' mother or the bees",
+          "rendering": "inspire; direct",
+          "evidence_ids": ["QURAN-16-68", "QURAN-28-7"]
+        },
+        {
+          "sense_id": "signal",
+          "condition": "Human gestural or covert communication",
+          "rendering": "signal; communicate quietly",
+          "evidence_ids": ["QURAN-19-11"]
+        }
+      ],
+      "prohibited_default": "Do not flatten prophetic revelation to generic 'communication'."
+    },
+    {
+      "id": "SL-GHFR",
+      "terms": ["ghafūr", "ghaffār"],
+      "root": "غفر",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "forgiving-intensive",
+          "condition": "Divine-name and predicate uses",
+          "rendering": "ever-forgiving; abundantly forgiving; forgiving",
+          "evidence_ids": ["MORPH-INTENSIVE-POLICY"]
+        }
+      ],
+      "prohibited_default": "An intensive form does not by itself license the universal quantifier 'all'."
+    },
+    {
+      "id": "SL-ISHAR",
+      "terms": ["al-ʿishār"],
+      "root": "عشر",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "full-term-she-camels",
+          "condition": "The hapax at 81:4",
+          "rendering": "full-term pregnant she-camels",
+          "evidence_ids": ["QAC-81-4"]
+        }
+      ],
+      "prohibited_default": "Do not reduce the noun to generic pregnant camels."
+    },
+    {
+      "id": "SL-WAD",
+      "terms": ["al-mawʾūdah"],
+      "root": "وأد",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "female-infant-buried-alive",
+          "condition": "The hapax passive participle at 81:8",
+          "rendering": "the girl buried alive; the female infant buried alive",
+          "evidence_ids": ["QAC-81-8"]
+        }
+      ],
+      "prohibited_default": "Do not omit the live-burial content; 'the buried girl' is materially incomplete."
+    },
+    {
+      "id": "SL-IHN",
+      "terms": ["al-ʿihn"],
+      "root": "عهن",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "dyed-wool",
+          "condition": "The mountain similes at 70:9 and 101:5",
+          "rendering": "dyed wool; colored wool",
+          "evidence_ids": ["LEX-IHN", "QURAN-70-9", "QURAN-101-5"]
+        }
+      ],
+      "prohibited_default": "Generic 'wool' may lose the lexical color component; preserve it where the mountain image is translated."
+    },
+    {
+      "id": "SL-KRSY",
+      "terms": ["kursiyy"],
+      "root": null,
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "seat",
+          "condition": "The concrete royal object at 38:34 or the divine kursiyy at 2:255",
+          "rendering": "seat; seat of authority",
+          "evidence_ids": ["QAC-2-255-KRSY", "QURAN-38-34", "QURAN-ARSH-CONTRAST"]
+        }
+      ],
+      "prohibited_default": "Do not silently merge kursiyy with ʿarsh, the Quran's other throne term. If 'throne' is chosen for clarity at 2:255, flag the lexical distinction in a note."
+    },
+    {
+      "id": "SL-IKHWA",
+      "terms": ["ikhwah"],
+      "root": "أخو",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "brothers-or-siblings-legal",
+          "condition": "The inheritance formula at 4:11",
+          "rendering": "brothers; siblings",
+          "evidence_ids": ["QURAN-4-11", "LEGAL-IKHWA-DISPUTE"]
+        }
+      ],
+      "prohibited_default": "The masculine plural and its inclusive legal application are materially disputed here; do not choose gender-neutral 'siblings' without a note."
+    },
+    {
+      "id": "SL-KHLQ",
+      "terms": ["khalq"],
+      "root": "خلق",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "act-of-creating",
+          "condition": "The context clearly denotes the act or process",
+          "rendering": "creation; creating",
+          "evidence_ids": ["QURAN-36-79"]
+        },
+        {
+          "sense_id": "created-order",
+          "condition": "The context clearly denotes creatures or created things",
+          "rendering": "creation; created beings; what was created",
+          "evidence_ids": ["QURAN-7-54"]
+        },
+        {
+          "sense_id": "unresolved-act-result",
+          "condition": "Both the process and result readings remain live",
+          "rendering": "creation",
+          "evidence_ids": ["QURAN-36-79"]
+        }
+      ],
+      "prohibited_default": "Do not add 'act of' unless the context excludes created things."
+    },
+    {
+      "id": "SL-DUNYA",
+      "terms": ["al-dunyā", "al-ḥayāt al-dunyā"],
+      "root": "دنو",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "present-life",
+          "condition": "The lexicalized contrast with the life to come",
+          "rendering": "this life; the present life",
+          "evidence_ids": ["QURAN-11-15", "QURAN-18-46"]
+        },
+        {
+          "sense_id": "nearer-foregrounded",
+          "condition": "Only where the passage itself activates spatial nearness",
+          "rendering": "the nearer",
+          "evidence_ids": []
+        }
+      ],
+      "prohibited_default": "Do not force 'this nearer life' into ordinary lexicalized occurrences."
+    },
+    {
+      "id": "SL-JHNM",
+      "terms": ["Jahannam"],
+      "root": null,
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "punishment-place",
+          "condition": "Proper-name uses",
+          "rendering": "Hell",
+          "evidence_ids": ["CLARITY-POLICY"]
+        }
+      ],
+      "prohibited_default": "Do not use opaque 'Gehenna' in the reader text unless the proper-name distinction is materially relevant and explained."
+    },
+    {
+      "id": "SL-SALAH",
+      "terms": ["ṣalāh"],
+      "root": "صلو",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "ritual-prayer",
+          "condition": "The established ritual practice",
+          "rendering": "ritual prayer; prayer",
+          "evidence_ids": ["SETTLED-RELIGIOUS-TERM-POLICY"]
+        }
+      ],
+      "prohibited_default": "Do not derive an English meaning from a proposed racehorse metaphor; do not use the awkward label 'prayer-rite' when plain English works."
+    },
+    {
+      "id": "SL-TAQWA",
+      "terms": ["taqwā", "ittaqā", "muttaqī", "taqī"],
+      "root": "وقي",
+      "confidence": "A",
+      "senses": [
+        {
+          "sense_id": "warning-guard-fear",
+          "condition": "A warning, threat, judgment, legal boundary, retaliation rule, or direct command is active",
+          "rendering": "fear God; be on guard; guard yourselves",
+          "evidence_ids": ["QAC-WQY", "PILOT-TAQWA-FORCE"]
+        },
+        {
+          "sense_id": "descriptive-piety",
+          "condition": "The form describes a person's stable character or names a pious class without an active warning",
+          "rendering": "mindful of God; awareness of God",
+          "evidence_ids": ["QAC-WQY", "PILOT-TAQWA-FORCE"]
+        },
+        {
+          "sense_id": "direct-protection",
+          "condition": "The clause explicitly names what is guarded against or what protection is requested",
+          "rendering": "guard against; shield from",
+          "evidence_ids": ["QAC-WQY"]
+        }
+      ],
+      "prohibited_default": "Do not flatten warning, legal, threat, or judgment contexts into the signature phrase 'mindful of God.' Context selects force; the root alone does not."
+    },
+    {
+      "id": "SL-QURAN",
+      "terms": ["qurʾān"],
+      "root": "قرأ",
+      "confidence": "B",
+      "senses": [
+        {
+          "sense_id": "recitation-act-or-passage",
+          "condition": "The syntax denotes an act, occasion, or portion of recitation",
+          "rendering": "recitation; reading",
+          "evidence_ids": ["LANE-QRA"]
+        },
+        {
+          "sense_id": "named-revelation",
+          "condition": "Title-like reference to the revealed corpus",
+          "rendering": "the Quran",
+          "evidence_ids": ["LANE-QRA"]
+        }
+      ],
+      "prohibited_default": "Do not force 'the Recitation' into title-like contexts or 'the Quran' into ordinary verbal-noun contexts."
+    }
+  ],
+  "evidence_sources": {
+    "QAC-WQY": {
+      "source": "Quranic Arabic Corpus, root W-Q-Y concordance and morphology",
+      "url": "https://corpus.quran.com/qurandictionary.jsp?q=wqy",
+      "observation": "The family includes direct protection, imperatives, purpose clauses, participles, and character descriptions; construction and context determine English force."
+    },
+    "PILOT-TAQWA-FORCE": {
+      "source": "Pilot taqwa force policy v1",
+      "observation": "All 34 W-Q-Y morphology segments in the 300-ayah pilot were mechanically enumerated and context-classified before force-only corrections."
+    },
+    "QAC-9-61": {
+      "source": "Quranic Arabic Corpus, 9:61 word-by-word and grammar",
+      "url": "https://corpus.quran.com/wordbyword.jsp?chapter=9&verse=61",
+      "observation": "One verse contrasts yuʾminu bi-llāh with yuʾminu lil-muʾminīn, demonstrating construction-sensitive senses."
+    },
+    "QAC-24-2": {
+      "source": "Quranic Arabic Corpus, 24:2 word-by-word",
+      "url": "https://corpus.quran.com/wordbyword.jsp?chapter=24&verse=2",
+      "observation": "The legal passage contains dīn Allāh, tuʾminūna bi-llāh, al-muʾminīn, and zānī/zāniyah in one immediate context."
+    },
+    "QAC-12-76": {
+      "source": "Quranic Arabic Corpus, 12:76",
+      "url": "https://corpus.quran.com/wordbyword.jsp?chapter=12&verse=76",
+      "observation": "Dīn al-malik denotes the king's governing law or system in the immediate legal narrative."
+    },
+    "QAC-DYN": {
+      "source": "Quranic Arabic Corpus, root D-Y-N concordance",
+      "url": "https://corpus.quran.com/qurandictionary.jsp?q=dyn",
+      "observation": "The concordance separately glosses judgment, law, religion, worship, and debt-related forms by context."
+    },
+    "QAC-2-183": {
+      "source": "Quranic Arabic Corpus, 2:183 morphology",
+      "url": "https://corpus.quran.com/wordmorphology.jsp?location=%282%3A183%3A4%29",
+      "observation": "Passive kutiba with ʿalaykum introduces a binding fasting obligation and is glossed 'is prescribed'."
+    },
+    "QAC-KTB": {
+      "source": "Quranic Arabic Corpus, root K-T-B concordance",
+      "url": "https://corpus.quran.com/qurandictionary.jsp?q=ktb",
+      "observation": "The root occurs in literal writing, scripture, record, and prescribed-obligation contexts."
+    },
+    "QAC-81-4": {
+      "source": "Quranic Arabic Corpus, 81:4 translation comparison",
+      "url": "https://corpus.quran.com/translation.jsp?chapter=81&verse=4",
+      "observation": "The comparison records full-term or ten-month pregnant she-camels as the specific referent of al-ʿishār."
+    },
+    "QAC-81-8": {
+      "source": "Quranic Arabic Corpus, 81:8 word morphology",
+      "url": "https://corpus.quran.com/wordmorphology.jsp?location=%2881%3A8%3A2%29",
+      "observation": "The feminine passive participle al-mawʾūdah is glossed as the female infant buried alive."
+    },
+    "LEX-IHN": {
+      "source": "Classical Arabic lexicon aggregation, entry ʿ-h-n",
+      "url": "https://arabiclexicon.hawramani.com/%D8%B9%D9%87%D9%86/",
+      "observation": "The collected lexicon entries distinguish ʿihn as dyed or colored wool."
+    },
+    "QURAN-70-9": {"source": "Quran 70:9", "observation": "The same mountain-to-ʿihn comparison occurs here."},
+    "QURAN-101-5": {"source": "Quran 101:5", "observation": "Mountains are compared with al-ʿihn al-manfūsh."},
+    "QAC-2-255-KRSY": {
+      "source": "Quranic Arabic Corpus, 2:255 word-by-word",
+      "url": "https://corpus.quran.com/wordbyword.jsp?chapter=2&verse=255",
+      "observation": "The verse contains kursiyyuhu, a noun distinct from the Quran's ʿarsh vocabulary."
+    },
+    "QURAN-38-34": {"source": "Quran 38:34", "observation": "The Quran's other kursiyy occurrence denotes Solomon's seat."},
+    "QURAN-ARSH-CONTRAST": {"source": "Intra-Quranic concordance", "observation": "The Quran elsewhere uses ʿarsh for throne; keeping the lexical distinction avoids collapsing two terms."},
+    "QURAN-4-11": {"source": "Quran 4:11", "observation": "The inheritance formula uses ikhwah without an explicit feminine form."},
+    "LEGAL-IKHWA-DISPUTE": {"source": "Sense-ledger review record", "observation": "Whether the masculine plural is translated as brothers or inclusively as siblings is material in this legal context and requires explicit review."},
+    "LANE-AMN": {
+      "source": "Edward William Lane, Arabic-English Lexicon, root A-M-N",
+      "url": "https://lexicon.quranic-research.net/data/01_A/135_Amn.html",
+      "observation": "The entry distinguishes security, trust, belief, and faith senses rather than reducing Form IV to one root gloss."
+    },
+    "LANE-DYN": {
+      "source": "Edward William Lane, Arabic-English Lexicon, root D-Y-N",
+      "url": "https://lexicon.quranic-research.net/data/08_d/165_dyn.html",
+      "observation": "The entry records obedience, religion, religious law, judgment, rule, and debt-related senses."
+    },
+    "LANE-ZNY": {
+      "source": "Edward William Lane, Arabic-English Lexicon, zān/zina entry",
+      "url": "https://www.laneslexicon.com/word/%D8%B2%D8%A7%D9%86/n18287",
+      "observation": "The sexual-offense term is broader than the unmarried-only sense that modern English often assigns to fornication."
+    },
+    "LANE-QRA": {
+      "source": "Edward William Lane, Arabic-English Lexicon, root Q-R-ʾ",
+      "url": "https://lexicon.quranic-research.net/data/21_q/048_qrO.html",
+      "observation": "The entry records both recitation/readings and title-like use for the revealed corpus."
+    },
+    "QURAN-20-13": {"source": "Quran 20:13", "observation": "Divine speech to Moses names what is revealed."},
+    "QURAN-42-13": {"source": "Quran 42:13", "observation": "Waḥy is used for revelation to Muhammad in a prophetic sequence."},
+    "QURAN-16-68": {"source": "Quran 16:68", "observation": "The same verb describes divine direction to bees."},
+    "QURAN-28-7": {"source": "Quran 28:7", "observation": "The same verb describes divine inspiration to Moses' mother."},
+    "QURAN-19-11": {"source": "Quran 19:11", "observation": "The same root describes Zechariah signaling to his people."},
+    "QURAN-36-79": {"source": "Quran 36:79", "observation": "Khalq can leave act/result scope unresolved without contextual forcing."},
+    "QURAN-7-54": {"source": "Quran 7:54", "observation": "Creation language can denote the created order as well as the act."},
+    "QURAN-11-15": {"source": "Quran 11:15", "observation": "Al-ḥayāt al-dunyā functions as the established contrastive label for present life."},
+    "QURAN-18-46": {"source": "Quran 18:46", "observation": "Al-ḥayāt al-dunyā functions as the established contrastive label for present life."},
+    "MORPH-INTENSIVE-POLICY": {"source": "Translation policy", "observation": "Morphological intensity does not itself assert universal scope."},
+    "CLARITY-POLICY": {"source": "Translation policy", "observation": "Prefer immediately understood reader English when no material semantic distinction is lost."},
+    "SETTLED-RELIGIOUS-TERM-POLICY": {"source": "Translation policy", "observation": "Use plain established English for a settled ritual term rather than manufacturing a root metaphor."}
+  }
+}

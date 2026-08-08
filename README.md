@@ -1,9 +1,10 @@
 # Quran Translation v2
 
-A clean rebuild of the Quran historical-philological translation pipeline.
+A clean, resumable Quran translation and publication pipeline.
 
-The design goal is simple: keep the Quran structure immutable and let Gemini only translate
-already-addressed ayahs. Every generated translation is tied to a stable verse key like `2:255`.
+The design goal is simple: keep the Quran structure immutable and let models operate
+only on already-addressed ayahs. Every generated translation is tied to a stable
+verse key like `2:255`.
 
 ## Source
 
@@ -15,21 +16,48 @@ data/source/quran-uthmani-min.xml
 
 It is Tanzil Quran Text, Uthmani Minimal, Version 1.1. Keep Tanzil attribution intact.
 
-## Pipeline
+## Production v2.4 Pipeline
 
-1. Import the Tanzil XML into SQLite.
-2. Validate the source has 114 surahs and 6236 ayahs.
-3. Create a translation run with deterministic ayah batches.
-4. Send one batch at a time to Gemini with a strict JSON output contract.
-5. Validate every model response before saving translations.
-6. Export Markdown, JSON, bilingual Markdown, and a consolidated glossary.
+The current production path is `src/quran_translate/production_runner.py`:
 
-Active prompt set:
+1. Verify the pinned Tanzil XML, imported SQLite source, and Quranic Arabic Corpus
+   morphology hashes; require 114 surahs and exactly 6,236 numbered ayahs.
+2. Build 254 deterministic units, never crossing a surah boundary: at most 32 ayahs
+   or 6,500 Arabic characters, with three neighboring ayahs of context.
+3. Generate the reader draft with Claude Opus 4.6 through Anthropic Message Batches.
+4. Audit every draft with the frozen Gemini 3.1 Pro forensic critic, then send only
+   supported findings to an Opus constrained-revision pass.
+5. Verify revised text, permit one bounded repair, and audit that repair once more.
+6. Discover identical Arabic ayahs mechanically, resolve any English divergence,
+   apply one rendering to every occurrence, and audit governed overrides.
+7. Run the spoken-English/force checker as advisory review data. It never rewrites
+   fidelity-reviewed text automatically.
+8. Persist all 6,236 stable references, then run the whole-book QA gate. Only that
+   gate may write `PRODUCTION_COMPLETE.json` and mark the run complete.
+
+All provider jobs, stage inputs, responses, token usage, and validated artifacts are
+atomically checkpointed under `data/work/production-v2.4/<run-id>/`. A restart polls
+existing jobs and reuses valid unit artifacts. A contract retry contains only failed
+units; completed text is never regenerated.
+
+Active production policy:
 
 ```text
-prompts/philological-v3.md
-prompts/output-contract-v2.md
+prompts/production-v2.4.md
+prompts/sense-ledger-v2.4.md
+data/evidence/sense-ledger-v2.4.json
 ```
+
+Run the zero-spend preflight (it never constructs provider clients):
+
+```bash
+PYTHONPATH=src .venv/bin/python -m quran_translate.production_runner \
+  --run-id production_v24_preflight --dry-run
+```
+
+The paid command is intentionally the same without `--dry-run`. Use a new immutable
+run ID for the actual launch. See `PRODUCTION_V2_4.md` for the launch and recovery
+contract.
 
 ## Quick Start
 
@@ -114,7 +142,12 @@ In this Tanzil XML, Al-Fatihah includes Bismillah as ayah `1:1`. Other surahs st
 an attribute on ayah 1. The translation pipeline treats non-Fatihah Bismillah as an opening marker,
 not as a numbered target ayah.
 
-## Glossary Policy
+The production prompt labels each non-Fatihah marker as unnumbered context and
+explicitly forbids returning it as a target. Surah 9 correctly has no marker.
 
-Gemini returns a small per-ayah word bank. The exporter consolidates those entries into a global
-glossary after the run.
+## Reading Notes
+
+The listening edition remains note-free. Internal review flags and model suggestions
+feed a separate evidence-adjudication queue. A note enters the reading edition only
+after a human editor ties it to identified evidence; model-written philology is not
+published as fact.

@@ -168,6 +168,7 @@ def cmd_validate_run(args: argparse.Namespace) -> None:
         run_id = require_run_id(conn, args.run_id)
         issues = validate_run(conn, run_id)
         persist_issues(conn, issues, run_id=run_id)
+    errors = [issue for issue in issues if issue.severity == "error"]
     if issues:
         max_print = args.max_print
         for issue in issues[:max_print]:
@@ -176,6 +177,7 @@ def cmd_validate_run(args: argparse.Namespace) -> None:
         remaining = len(issues) - max_print
         if remaining > 0:
             print(f"... {remaining} more issue(s)")
+    if errors:
         raise SystemExit(1)
     print(f"Run validation passed: {run_id}")
 
@@ -209,7 +211,8 @@ def cmd_publication_build(args: argparse.Namespace) -> None:
         ],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
-    if issues:
+    errors = [issue for issue in issues if issue.severity == "error"]
+    if errors:
         raise SystemExit(1)
 
 
@@ -218,6 +221,7 @@ def cmd_publication_validate(args: argparse.Namespace) -> None:
         init_db(conn)
         run_id = require_run_id(conn, args.run_id)
         issues = validate_publication(conn, run_id)
+    errors = [issue for issue in issues if issue.severity == "error"]
     if issues:
         for issue in issues[: args.max_print]:
             ref = f" [{issue.ref}]" if issue.ref else ""
@@ -225,6 +229,7 @@ def cmd_publication_validate(args: argparse.Namespace) -> None:
         remaining = len(issues) - args.max_print
         if remaining > 0:
             print(f"... {remaining} more issue(s)")
+    if errors:
         raise SystemExit(1)
     print(f"Publication validation passed: {run_id}")
 

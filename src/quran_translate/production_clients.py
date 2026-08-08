@@ -1,0 +1,299 @@
+"""Provider clients used by the resumable v2.4 production pipeline."""
+
+from __future__ import annotations
+
+import http.client
+import json
+import ssl
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+RETRYABLE_HTTP = {408, 409, 429, 500, 502, 503, 504, 529}
+
+
+class ProviderError(RuntimeError):
+    """A provider request could not be completed safely."""
+
+
+@dataclass(frozen=True)
+class BatchState:
+    batch_id: str
+    state: str
+    raw: dict[str, Any]
+
+    @property
+    def ended(self) -> bool:
+        return self.state in {
+            "ended",
+            "JOB_STATE_SUCCEEDED",
+            "JOB_STATE_FAILED",
+            "JOB_STATE_CANCELLED",
+            "JOB_STATE_EXPIRED",
+            "JOB_STATE_PARTIALLY_SUCCEEDED",
+        }
+
+    @property
+    def succeeded(self) -> bool:
+        return self.state in {
+            "ended",
+            "JOB_STATE_SUCCEEDED",
+            "JOB_STATE_PARTIALLY_SUCCEEDED",
+        }
+
+
+def _retry_delay(attempt: int) -> None:
+    time.sleep(min(15 * (attempt + 1), 90))
+
+
+def _json_request(
+    request: urllib.request.Request,
+    *,
+    timeout: int,
+    attempts: int = 4,
+) -> dict[str, Any]:
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.load(response)
+            if not isinstance(payload, dict):
+                raise ProviderError("Provider returned a non-object JSON response")
+            return payload
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:2000]
+            if exc.code in RETRYABLE_HTTP and attempt + 1 < attempts:
+                _retry_delay(attempt)
+                continue
+            raise ProviderError(f"HTTP {exc.code}: {detail}") from exc
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ssl.SSLError,
+            http.client.IncompleteRead,
+            ConnectionError,
+            json.JSONDecodeError,
+        ) as exc:
+            if attempt + 1 >= attempts:
+                raise ProviderError(f"Provider request failed: {exc}") from exc
+            _retry_delay(attempt)
+    raise AssertionError("unreachable")
+
+
+class AnthropicBatchClient:
+    """Small dependency-free client for Anthropic Message Batches."""
+
+    base_url = "https://api.anthropic.com/v1/messages/batches"
+
+    def __init__(self, api_key: str, *, timeout: int = 900) -> None:
+        if not api_key:
+            raise ProviderError("ANTHROPIC_API_KEY is missing")
+        self.api_key = api_key
+        self.timeout = timeout
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+        }
+
+    def submit(self, requests: list[dict[str, Any]]) -> BatchState:
+        if not requests:
+            raise ValueError("Cannot submit an empty Anthropic batch")
+        body = json.dumps({"requests": requests}, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            self.base_url,
+            data=body,
+            headers=self._headers(),
+            method="POST",
+        )
+        payload = _json_request(request, timeout=self.timeout)
+        batch_id = str(payload.get("id") or "")
+        state = str(payload.get("processing_status") or "")
+        if not batch_id or not state:
+            raise ProviderError(f"Malformed Anthropic batch response: {payload}")
+        return BatchState(batch_id=batch_id, state=state, raw=payload)
+
+    def retrieve(self, batch_id: str) -> BatchState:
+        request = urllib.request.Request(
+            f"{self.base_url}/{batch_id}", headers=self._headers(), method="GET"
+        )
+        payload = _json_request(request, timeout=self.timeout)
+        state = str(payload.get("processing_status") or "")
+        if not state:
+            raise ProviderError(f"Malformed Anthropic batch status: {payload}")
+        return BatchState(batch_id=batch_id, state=state, raw=payload)
+
+    def results(self, batch_id: str) -> list[dict[str, Any]]:
+        request = urllib.request.Request(
+            f"{self.base_url}/{batch_id}/results",
+            headers=self._headers(),
+            method="GET",
+        )
+        for attempt in range(4):
+            try:
+                rows: list[dict[str, Any]] = []
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    for raw_line in response:
+                        if not raw_line.strip():
+                            continue
+                        row = json.loads(raw_line.decode("utf-8"))
+                        if not isinstance(row, dict):
+                            raise ProviderError("Anthropic batch result row is not an object")
+                        rows.append(row)
+                return rows
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:2000]
+                if exc.code in RETRYABLE_HTTP and attempt < 3:
+                    _retry_delay(attempt)
+                    continue
+                raise ProviderError(f"Anthropic results HTTP {exc.code}: {detail}") from exc
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ssl.SSLError,
+                http.client.IncompleteRead,
+                ConnectionError,
+                json.JSONDecodeError,
+            ) as exc:
+                if attempt == 3:
+                    raise ProviderError(f"Anthropic results failed: {exc}") from exc
+                _retry_delay(attempt)
+        raise AssertionError("unreachable")
+
+
+def anthropic_result_text(row: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    result = row.get("result")
+    if not isinstance(result, dict) or result.get("type") != "succeeded":
+        raise ProviderError(f"Anthropic item did not succeed: {result}")
+    message = result.get("message")
+    if not isinstance(message, dict):
+        raise ProviderError("Anthropic succeeded item lacks a message")
+    content = message.get("content")
+    if not isinstance(content, list):
+        raise ProviderError("Anthropic message lacks content blocks")
+    text = "".join(
+        str(block.get("text") or "")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+    if not text.strip():
+        raise ProviderError("Anthropic message contains no text")
+    usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+    metadata = {
+        "model": message.get("model"),
+        "stop_reason": message.get("stop_reason"),
+        "usage": usage,
+    }
+    return text, metadata
+
+
+class GeminiBatchClient:
+    """Thin wrapper around the official google-genai file Batch API."""
+
+    terminal_states = {
+        "JOB_STATE_SUCCEEDED",
+        "JOB_STATE_FAILED",
+        "JOB_STATE_CANCELLED",
+        "JOB_STATE_EXPIRED",
+        "JOB_STATE_PARTIALLY_SUCCEEDED",
+    }
+
+    def __init__(self, api_key: str) -> None:
+        if not api_key:
+            raise ProviderError("GOOGLE_API_KEY is missing")
+        try:
+            from google import genai
+        except ImportError as exc:  # pragma: no cover - exercised by environment setup.
+            raise ProviderError("Install google-genai before running production") from exc
+        self.client = genai.Client(api_key=api_key)
+
+    def submit_file(
+        self,
+        *,
+        model: str,
+        input_path: Path,
+        display_name: str,
+    ) -> BatchState:
+        if not input_path.is_file() or input_path.stat().st_size == 0:
+            raise ValueError(f"Gemini batch input is missing or empty: {input_path}")
+        try:
+            uploaded = self.client.files.upload(
+                file=input_path,
+                config={"mime_type": "application/jsonl", "display_name": display_name},
+            )
+            job = self.client.batches.create(
+                model=model,
+                src=uploaded.name,
+                config={"display_name": display_name},
+            )
+        except Exception as exc:  # SDK error hierarchy changes across releases.
+            raise ProviderError(f"Gemini batch submission failed: {exc}") from exc
+        batch_id = str(getattr(job, "name", "") or "")
+        state = _gemini_state_name(job)
+        if not batch_id:
+            raise ProviderError(f"Gemini batch response lacks a name: {job}")
+        return BatchState(batch_id=batch_id, state=state, raw=_model_dump(job))
+
+    def retrieve(self, batch_id: str) -> BatchState:
+        try:
+            job = self.client.batches.get(name=batch_id)
+        except Exception as exc:
+            raise ProviderError(f"Gemini batch status failed: {exc}") from exc
+        return BatchState(
+            batch_id=batch_id,
+            state=_gemini_state_name(job),
+            raw=_model_dump(job),
+        )
+
+    def file_results(self, batch_id: str) -> list[dict[str, Any]]:
+        try:
+            job = self.client.batches.get(name=batch_id)
+        except Exception as exc:
+            raise ProviderError(f"Gemini batch result retrieval failed: {exc}") from exc
+        state = _gemini_state_name(job)
+        if state not in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
+            raise ProviderError(
+                f"Gemini batch {batch_id} is not successful: {state}"
+            )
+        dest = getattr(job, "dest", None)
+        file_name = getattr(dest, "file_name", None) if dest else None
+        if not file_name:
+            raise ProviderError("Gemini file batch has no output file")
+        try:
+            payload = self.client.files.download(file=file_name)
+        except Exception as exc:
+            raise ProviderError(f"Gemini result file download failed: {exc}") from exc
+        rows: list[dict[str, Any]] = []
+        for line in bytes(payload).decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ProviderError("Gemini result row is not an object")
+            rows.append(row)
+        return rows
+
+
+def _gemini_state_name(job: Any) -> str:
+    state = getattr(job, "state", None)
+    name = getattr(state, "name", None)
+    return str(name or state or "JOB_STATE_UNSPECIFIED")
+
+
+def _model_dump(value: Any) -> dict[str, Any]:
+    for method_name in ("model_dump", "to_json_dict", "to_dict"):
+        method = getattr(value, method_name, None)
+        if callable(method):
+            result = method()
+            if isinstance(result, dict):
+                return result
+    try:
+        payload = json.loads(str(value))
+    except json.JSONDecodeError:
+        payload = {"repr": repr(value)}
+    return payload if isinstance(payload, dict) else {"value": payload}

@@ -11,6 +11,7 @@ from quran_translate.validation import validate_source
 class SourceImportTests(unittest.TestCase):
     def test_imported_tanzil_source_is_complete(self) -> None:
         conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
         conn.row_factory = sqlite3.Row
         init_db(conn)
 
@@ -22,4 +23,3 @@ class SourceImportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

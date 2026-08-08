@@ -50,6 +50,16 @@ BANNED_TERMS = (
     "genitals",
 )
 
+PRODUCTION_V24_BANNED_TERMS = (
+    "verily",
+    "lo",
+    "thus",
+    "lest",
+    "chastisement",
+    "recompense",
+    "ingrate",
+)
+
 
 @dataclass(frozen=True)
 class ValidationIssue:
@@ -97,6 +107,30 @@ def validate_source(conn: sqlite3.Connection) -> list[ValidationIssue]:
                     ref=str(info.number),
                 )
             )
+
+    bismillah_rows = list(
+        conn.execute(
+            """
+            SELECT surah_number, ayah_number, bismillah
+            FROM source_ayahs
+            WHERE bismillah IS NOT NULL
+            ORDER BY surah_number, ayah_number
+            """
+        )
+    )
+    bismillah_surahs = {int(row["surah_number"]) for row in bismillah_rows}
+    expected_bismillah_surahs = set(range(2, 115)) - {9}
+    if bismillah_surahs != expected_bismillah_surahs or any(
+        int(row["ayah_number"]) != 1 for row in bismillah_rows
+    ):
+        issues.append(
+            ValidationIssue(
+                "source",
+                "error",
+                "Opening Bismillah markers do not match the Tanzil policy "
+                "(surahs 2-8 and 10-114, ayah 1 attributes only)",
+            )
+        )
 
     return issues
 
@@ -162,7 +196,17 @@ def validate_run(conn: sqlite3.Connection, run_id: str) -> list[ValidationIssue]
     for row in missing:
         issues.append(ValidationIssue("translation", "error", "Missing translation", ref=row["verse_key"]))
 
-    banned_re = re.compile(r"\b(" + "|".join(re.escape(term) for term in BANNED_TERMS) + r")\b", re.I)
+    run = conn.execute(
+        "SELECT prompt_version FROM translation_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    banned_terms = (
+        PRODUCTION_V24_BANNED_TERMS
+        if run and str(run["prompt_version"]).startswith("production-v2.4")
+        else BANNED_TERMS
+    )
+    banned_re = re.compile(
+        r"\b(" + "|".join(re.escape(term) for term in banned_terms) + r")\b", re.I
+    )
     bracket_re = re.compile(r"\[[^\]]+\]")
     for row in conn.execute(
         """

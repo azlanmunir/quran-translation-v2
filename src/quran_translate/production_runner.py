@@ -75,7 +75,7 @@ REFRAIN_POLICY_PATH = DATA_DIR / "evidence" / "refrain-policy-v1.json"
 
 ANTHROPIC_MODEL = "claude-opus-4-6"
 GEMINI_MODEL = "gemini-3.1-pro-preview"
-PROMPT_VERSION = "production-v2.4-opus-gemini"
+PROMPT_VERSION = "production-v2.4-opus-gemini-transport-v1"
 CANONICAL_SOURCE_SHA256 = (
     "f78067cd98c51c03e450581e1e8713f4e7c352e0b62a4fe5c35811da28dd23bf"
 )
@@ -87,7 +87,8 @@ DEFAULT_MAX_AYAHS = 32
 DEFAULT_MAX_ARABIC_CHARS = 6_500
 DEFAULT_CONTEXT_AYAHS = 3
 DEFAULT_SHARD_SIZE = 254
-ANTHROPIC_MAX_TOKENS = 24_000
+ANTHROPIC_MAX_TOKENS = 48_000
+ANTHROPIC_EFFORT = "high"
 GEMINI_MAX_TOKENS = 20_000
 CONTRACT_ATTEMPTS = 2
 POLL_SECONDS = 60
@@ -100,6 +101,50 @@ ALLOWED_FLAGS = {
     "loanword",
     "ledger_gap",
     "low_confidence",
+}
+
+READER_ROW_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "ayah": {"type": "integer"},
+        "english": {"type": "string"},
+        "review_flags": {
+            "type": "array",
+            "items": {"type": "string", "enum": sorted(ALLOWED_FLAGS)},
+        },
+    },
+    "required": ["ayah", "english"],
+    "additionalProperties": False,
+}
+
+READER_JSON_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": READER_ROW_JSON_SCHEMA,
+}
+
+REVISION_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "ayahs": READER_JSON_SCHEMA,
+        "decisions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "finding_id": {"type": "string"},
+                    "decision": {
+                        "type": "string",
+                        "enum": ["applied", "rejected", "escalated"],
+                    },
+                    "reason": {"type": "string"},
+                },
+                "required": ["finding_id", "decision", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["ayahs", "decisions"],
+    "additionalProperties": False,
 }
 
 
@@ -147,6 +192,7 @@ class ProductionConfig:
     context_ayahs: int = DEFAULT_CONTEXT_AYAHS
     shard_size: int = DEFAULT_SHARD_SIZE
     poll_seconds: int = POLL_SECONDS
+    seed_drafts_from: str | None = None
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -315,6 +361,105 @@ def prompt_material() -> tuple[str, str, str]:
     )
 
 
+SEED_COMPATIBLE_INPUTS = {
+    "source_xml",
+    "morphology",
+    "prompt",
+    "ledger_md",
+    "ledger_json",
+    "refrain_policy",
+}
+
+
+def seed_draft_artifacts(
+    *,
+    target_base: Path,
+    source_base: Path,
+    units: list[ProductionUnit],
+    input_hash_for_unit: Callable[[ProductionUnit], str],
+) -> dict[str, Any]:
+    """Import only contract-valid drafts from a semantically identical run."""
+    if source_base.resolve() == target_base.resolve():
+        raise ProductionError("A production run cannot seed drafts from itself")
+    source_manifest_path = source_base / "manifest.json"
+    target_manifest_path = target_base / "manifest.json"
+    if not source_manifest_path.is_file() or not target_manifest_path.is_file():
+        raise ProductionError("Draft seeding requires both source and target manifests")
+    source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    target_manifest = json.loads(target_manifest_path.read_text(encoding="utf-8"))
+    if source_manifest.get("unit_hash") != target_manifest.get("unit_hash"):
+        raise ProductionError("Draft seed unit boundaries do not match the target run")
+    source_model = source_manifest.get("models", {}).get("draft_revision")
+    target_model = target_manifest.get("models", {}).get("draft_revision")
+    if source_model != target_model or target_model != ANTHROPIC_MODEL:
+        raise ProductionError("Draft seed model does not match the target run")
+    source_inputs = source_manifest.get("inputs", {})
+    target_inputs = target_manifest.get("inputs", {})
+    mismatched = sorted(
+        key
+        for key in SEED_COMPATIBLE_INPUTS
+        if source_inputs.get(key) != target_inputs.get(key)
+    )
+    if mismatched:
+        raise ProductionError(
+            "Draft seed semantic inputs do not match: " + ", ".join(mismatched)
+        )
+
+    imported: list[dict[str, str]] = []
+    for unit in units:
+        source_path = artifact_path(source_base, unit, "draft")
+        if not source_path.is_file():
+            continue
+        source_payload = json.loads(source_path.read_text(encoding="utf-8"))
+        result = validate_reader(source_payload.get("result"), unit.expected_ayahs)
+        if result is None:
+            raise ProductionError(f"Draft seed artifact fails contract: {source_path}")
+        target_path = artifact_path(target_base, unit, "draft")
+        input_hash = input_hash_for_unit(unit)
+        source_hash = file_hash(source_path)
+        if target_path.exists():
+            load_artifact(
+                target_path,
+                input_hash,
+                lambda data, unit=unit: validate_reader(data, unit.expected_ayahs),
+            )
+        else:
+            atomic_json(
+                target_path,
+                {
+                    "input_hash": input_hash,
+                    "model": ANTHROPIC_MODEL,
+                    "attempt": source_payload.get("attempt"),
+                    "usage": source_payload.get("usage", {}),
+                    "result": result,
+                    "raw": source_payload.get("raw", ""),
+                    "imported_from": {
+                        "run_id": source_base.name,
+                        "artifact_sha256": source_hash,
+                        "reason": "validated draft reuse after transport-contract hardening",
+                    },
+                },
+            )
+        imported.append({"unit_id": unit.unit_id, "artifact_sha256": source_hash})
+
+    report = {
+        "version": "production-draft-seed-v1",
+        "source_run_id": source_base.name,
+        "source_manifest_sha256": file_hash(source_manifest_path),
+        "target_manifest_sha256": file_hash(target_manifest_path),
+        "imported_count": len(imported),
+        "imported": imported,
+    }
+    report_path = target_base / "DRAFT_SEED.json"
+    if report_path.exists():
+        current = json.loads(report_path.read_text(encoding="utf-8"))
+        if current != report:
+            raise ProductionError("Draft seed report changed during resume")
+    else:
+        atomic_json(report_path, report)
+    return report
+
+
 def shared_inputs(
     unit: ProductionUnit,
     *,
@@ -443,11 +588,13 @@ def prepare_production(
         raise ProductionError("Production units overlap or omit ayahs")
 
     manifest = {
-        "version": "quran-production-v2.4",
+        "version": "quran-production-v2.4.1",
         "config": asdict(config),
         "models": {"draft_revision": ANTHROPIC_MODEL, "critic": GEMINI_MODEL},
         "limits": {
             "anthropic_max_tokens": ANTHROPIC_MAX_TOKENS,
+            "anthropic_effort": ANTHROPIC_EFFORT,
+            "anthropic_structured_outputs": True,
             "gemini_max_tokens": GEMINI_MAX_TOKENS,
             "contract_attempts": CONTRACT_ATTEMPTS,
         },
@@ -604,27 +751,45 @@ def _anthropic_params(
     *,
     system: list[dict[str, Any]],
     user: str,
+    response_schema: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "model": ANTHROPIC_MODEL,
         "max_tokens": ANTHROPIC_MAX_TOKENS,
         "thinking": {"type": "adaptive"},
-        "output_config": {"effort": "high"},
+        "output_config": {
+            "effort": ANTHROPIC_EFFORT,
+            "format": {"type": "json_schema", "schema": response_schema},
+        },
         "system": system,
         "messages": [{"role": "user", "content": user}],
     }
 
 
+def anthropic_schema_for_stage(stage: str) -> dict[str, Any]:
+    if stage == "draft":
+        return READER_JSON_SCHEMA
+    if stage in {"revision", "repair"}:
+        return REVISION_JSON_SCHEMA
+    raise ProductionError(f"No Anthropic response schema registered for stage: {stage}")
+
+
 def _stage_input_hash(stage: str, unit: ProductionUnit, payload: Any) -> str:
     anthropic_stages = {"draft", "revision", "repair"}
-    return stable_hash(
-        {
-            "stage": stage,
-            "unit": unit.to_dict(),
-            "model": ANTHROPIC_MODEL if stage in anthropic_stages else GEMINI_MODEL,
-            "payload": payload,
+    record = {
+        "stage": stage,
+        "unit": unit.to_dict(),
+        "model": ANTHROPIC_MODEL if stage in anthropic_stages else GEMINI_MODEL,
+        "payload": payload,
+    }
+    if stage in anthropic_stages:
+        record["generation"] = {
+            "max_tokens": ANTHROPIC_MAX_TOKENS,
+            "effort": ANTHROPIC_EFFORT,
+            "thinking": "adaptive",
+            "response_schema": anthropic_schema_for_stage(stage),
         }
-    )
+    return stable_hash(record)
 
 
 def _shards(values: list[Any], size: int) -> list[list[Any]]:
@@ -661,27 +826,54 @@ def run_anthropic_stage(
     assignment: Callable[[ProductionUnit, int], tuple[str, Any, Callable[[Any], Any]]],
     client: AnthropicBatchClient,
 ) -> None:
+    response_schema = anthropic_schema_for_stage(stage)
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
-        attempt_units = (
-            list(units)
-            if attempt == 1
-            else [
-                unit
-                for unit in units
-                if (
-                    unit_dir(base, unit)
-                    / f"{stage}-attempt{attempt - 1}-FAILED.json"
-                ).exists()
-                and not artifact_path(base, unit, stage).exists()
-            ]
+        existing_attempt_jobs = sorted(
+            (base / "jobs").glob(f"{stage}-a{attempt}-s*.json")
         )
+        if existing_attempt_jobs:
+            unit_by_custom_id = {
+                f"{stage[:8]}-{unit.unit_id}": unit for unit in units
+            }
+            submitted_ids = [
+                custom_id
+                for job_path in existing_attempt_jobs
+                for custom_id in json.loads(
+                    job_path.read_text(encoding="utf-8")
+                ).get("custom_ids", [])
+            ]
+            if not submitted_ids or any(
+                custom_id not in unit_by_custom_id for custom_id in submitted_ids
+            ):
+                raise ProductionError(
+                    f"Existing {stage} job has invalid custom_ids for attempt {attempt}"
+                )
+            attempt_units = [unit_by_custom_id[custom_id] for custom_id in submitted_ids]
+        else:
+            attempt_units = (
+                list(units)
+                if attempt == 1
+                else [
+                    unit
+                    for unit in units
+                    if (
+                        unit_dir(base, unit)
+                        / f"{stage}-attempt{attempt - 1}-FAILED.json"
+                    ).exists()
+                    and not artifact_path(base, unit, stage).exists()
+                ]
+            )
         if not attempt_units:
             break
         work: list[tuple[ProductionUnit, str, str, Callable[[Any], Any]]] = []
         for unit in attempt_units:
             user, hash_payload, validator = assignment(unit, attempt)
             input_hash = _stage_input_hash(stage, unit, hash_payload)
-            load_artifact(artifact_path(base, unit, stage), input_hash, validator)
+            cached = load_artifact(
+                artifact_path(base, unit, stage), input_hash, validator
+            )
+            if cached is not None and not existing_attempt_jobs:
+                continue
             work.append((unit, user, input_hash, validator))
         if not work:
             break
@@ -700,6 +892,7 @@ def run_anthropic_stage(
                             if attempt > 1
                             else ""
                         ),
+                        response_schema=response_schema,
                     ),
                 }
                 for unit, user, _input_hash, _validator in shard
@@ -1238,6 +1431,22 @@ def run_production(
         for unit in units
     }
 
+    if config.seed_drafts_from:
+        source_base = run_dir(config.seed_drafts_from)
+        seed_draft_artifacts(
+            target_base=base,
+            source_base=source_base,
+            units=units,
+            input_hash_for_unit=lambda unit: _stage_input_hash(
+                "draft",
+                unit,
+                {
+                    "system": draft_system,
+                    "user": draft_assignment(shared_by_unit[unit.unit_id]),
+                },
+            ),
+        )
+
     run_anthropic_stage(
         base=base,
         stage="draft",
@@ -1566,6 +1775,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--context-ayahs", type=int, default=DEFAULT_CONTEXT_AYAHS)
     parser.add_argument("--shard-size", type=int, default=DEFAULT_SHARD_SIZE)
     parser.add_argument("--poll-seconds", type=int, default=POLL_SECONDS)
+    parser.add_argument(
+        "--seed-drafts-from",
+        help="Reuse only validated draft artifacts from this compatible run ID",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--status", action="store_true")
     return parser.parse_args()
@@ -1580,6 +1793,7 @@ def main() -> None:
         context_ayahs=args.context_ayahs,
         shard_size=args.shard_size,
         poll_seconds=args.poll_seconds,
+        seed_drafts_from=args.seed_drafts_from,
     )
     with connect(args.db) as conn:
         base, units, _verses = prepare_production(conn, config)

@@ -35,6 +35,17 @@ Return only this JSON object:
 """
 
 REFRAIN_CONTRACT_ATTEMPTS = 2
+REFRAIN_MAX_TOKENS = 12_000
+REFRAIN_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "group_id": {"type": "string"},
+        "english": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": ["group_id", "english", "reason"],
+    "additionalProperties": False,
+}
 
 
 @dataclass(frozen=True)
@@ -223,9 +234,15 @@ def resolve_refrains(
                 "custom_id": f"refr-{item.group_id[:32]}",
                 "params": {
                     "model": "claude-opus-4-6",
-                    "max_tokens": 2_000,
+                    "max_tokens": REFRAIN_MAX_TOKENS,
                     "thinking": {"type": "adaptive"},
-                    "output_config": {"effort": "high"},
+                    "output_config": {
+                        "effort": "high",
+                        "format": {
+                            "type": "json_schema",
+                            "schema": REFRAIN_JSON_SCHEMA,
+                        },
+                    },
                     "system": [
                         {"type": "text", "text": REFRAIN_SYSTEM},
                         *shared_system,

@@ -8,7 +8,7 @@
 - Morphology SHA256: `742bfac59941b2cb09736d5b7aae694af50792261fb8450cbf6afafcc340645f`
 - Draft/revision model: `claude-opus-4-6`
 - Critic model: `gemini-3.1-pro-preview`
-- Prompt version: `production-v2.4-opus-gemini`
+- Prompt version: `production-v2.4-opus-gemini-transport-v1`
 
 The manifest also hashes the prompt, sense ledger, refrain policy, batching code,
 provider clients, critic, spoken-English checker, and QA gate. If any input changes,
@@ -22,7 +22,9 @@ resume refuses and requires a new run ID.
 - three neighboring ayahs on either side where available
 - one bulk batch for a full 254-unit phase
 - up to two contract attempts; attempt two contains only failed units
-- 24,000 maximum Opus output/thinking tokens per unit; billing follows actual use
+- 48,000 maximum Opus output/thinking tokens per unit; billing follows actual use
+- grammar-constrained Anthropic JSON outputs for draft, revision, repair, and
+  model-resolved refrains
 
 The shared production prompt and ledger use Anthropic's one-hour cache breakpoint.
 Every result is mapped by stable unit ID and must cover the exact expected ayah list.
@@ -84,3 +86,18 @@ PYTHONPATH=src .venv/bin/python -m quran_translate.production_runner \
 The production process may be restarted with the exact paid command. Existing job
 IDs and validated unit artifacts are reused. Never delete the run directory or use
 the same run ID after changing a hashed input.
+
+After a transport-only hardening change, a new run may explicitly seed compatible
+drafts from an earlier run:
+
+```bash
+PYTHONPATH=src caffeinate -dimsu .venv/bin/python \
+  -m quran_translate.production_runner \
+  --run-id production_v24_1_full \
+  --seed-drafts-from production_v24_full
+```
+
+Seeding verifies the source, morphology, prompt, ledgers, refrain policy, model, and
+unit boundaries; contract-valid drafts are copied with source hashes into
+`DRAFT_SEED.json`. Missing or invalid drafts are submitted normally. Later resumes
+must use the same seed argument because it is frozen in the target manifest.

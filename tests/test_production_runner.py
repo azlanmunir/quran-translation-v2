@@ -14,10 +14,12 @@ from quran_translate.production_clients import BatchState
 from quran_translate.production_packets import ProductionUnit, build_units, source_verses
 from quran_translate.production_refrains import resolve_refrains
 from quran_translate.production_runner import (
+    ANTHROPIC_MAX_TOKENS,
     ProductionConfig,
     ProductionError,
     run_anthropic_stage,
     run_production,
+    seed_draft_artifacts,
     validate_critic_response,
     validate_reader,
     validate_revision,
@@ -351,6 +353,133 @@ class ProductionRunnerTests(unittest.TestCase):
             self.assertTrue(second.exists())
             self.assertEqual(1, client.submit_calls)
             self.assertGreaterEqual(client.retrieve_calls, 1)
+            params = client.requests[0]["params"]
+            self.assertEqual(ANTHROPIC_MAX_TOKENS, params["max_tokens"])
+            self.assertEqual(
+                "json_schema", params["output_config"]["format"]["type"]
+            )
+
+    def test_anthropic_fresh_stage_does_not_submit_seeded_units(self) -> None:
+        units = [
+            ProductionUnit("s001_001_001", 1, 1, 1, 1, 1, 1),
+            ProductionUnit("s001_002_002", 2, 1, 2, 2, 2, 2),
+        ]
+        client = FakeAnthropicBatchClient()
+
+        def assignment(unit: ProductionUnit, _attempt: int):
+            expected = unit.expected_ayahs
+            return (
+                f"Translate {unit.unit_id}",
+                {"unit": unit.to_dict()},
+                lambda data, expected=expected: validate_reader(data, expected),
+            )
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            run_anthropic_stage(
+                base=base,
+                stage="draft",
+                units=[units[0]],
+                shard_size=10,
+                poll_seconds=0,
+                system=[{"type": "text", "text": "system"}],
+                assignment=assignment,
+                client=client,
+            )
+            for job in (base / "jobs").glob("*.json"):
+                job.unlink()
+            run_anthropic_stage(
+                base=base,
+                stage="draft",
+                units=units,
+                shard_size=10,
+                poll_seconds=0,
+                system=[{"type": "text", "text": "system"}],
+                assignment=assignment,
+                client=client,
+            )
+            self.assertEqual(2, client.submit_calls)
+            self.assertEqual(1, len(client.requests))
+            self.assertTrue(client.requests[0]["custom_id"].endswith("s001_002_002"))
+            second = base / "units" / units[1].unit_id / "draft.json"
+            second.unlink()
+            run_anthropic_stage(
+                base=base,
+                stage="draft",
+                units=units,
+                shard_size=10,
+                poll_seconds=0,
+                system=[{"type": "text", "text": "system"}],
+                assignment=assignment,
+                client=client,
+            )
+            self.assertTrue(second.exists())
+            self.assertEqual(2, client.submit_calls)
+
+    def test_seed_drafts_imports_only_valid_compatible_artifacts(self) -> None:
+        unit = ProductionUnit("s001_001_001", 1, 1, 1, 1, 1, 1)
+        common_inputs = {
+            key: f"hash-{key}"
+            for key in {
+                "source_xml",
+                "morphology",
+                "prompt",
+                "ledger_md",
+                "ledger_json",
+                "refrain_policy",
+            }
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source_run"
+            target = root / "target_run"
+            source.mkdir()
+            target.mkdir()
+            for base in (source, target):
+                (base / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "unit_hash": "same-units",
+                            "models": {"draft_revision": "claude-opus-4-6"},
+                            "inputs": common_inputs,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            source_artifact = source / "units" / unit.unit_id / "draft.json"
+            source_artifact.parent.mkdir(parents=True)
+            source_artifact.write_text(
+                json.dumps(
+                    {
+                        "input_hash": "old-generation-hash",
+                        "model": "claude-opus-4-6",
+                        "attempt": 1,
+                        "usage": {"usage": {"output_tokens": 10}},
+                        "result": [{"ayah": 1, "english": "The opening."}],
+                        "raw": '[{"ayah":1,"english":"The opening."}]',
+                    }
+                ),
+                encoding="utf-8",
+            )
+            first = seed_draft_artifacts(
+                target_base=target,
+                source_base=source,
+                units=[unit],
+                input_hash_for_unit=lambda _unit: "new-generation-hash",
+            )
+            second = seed_draft_artifacts(
+                target_base=target,
+                source_base=source,
+                units=[unit],
+                input_hash_for_unit=lambda _unit: "new-generation-hash",
+            )
+            imported = json.loads(
+                (target / "units" / unit.unit_id / "draft.json").read_text()
+            )
+            self.assertEqual(1, first["imported_count"])
+            self.assertEqual(first, second)
+            self.assertEqual("new-generation-hash", imported["input_hash"])
+            self.assertEqual("source_run", imported["imported_from"]["run_id"])
 
     def test_refrain_contract_failure_retries_only_failed_groups(self) -> None:
         client = FlakyRefrainClient()

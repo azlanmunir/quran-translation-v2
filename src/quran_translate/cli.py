@@ -22,6 +22,13 @@ from .audio_pipeline import (
     write_audio_manifest,
 )
 from .audio_release import DEFAULT_RELEASE_ROOT, create_audio_release
+from .audio_bakeoff import (
+    DEFAULT_BAKEOFF_ROOT,
+    BakeoffError,
+    bakeoff_status,
+    prepare_bakeoff,
+    run_bakeoff,
+)
 from .config import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_CONTEXT_AFTER,
@@ -449,6 +456,42 @@ def cmd_elevenlabs_tts(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_audio_bakeoff_prepare(args: argparse.Namespace) -> None:
+    try:
+        state = prepare_bakeoff(Path(args.output))
+    except BakeoffError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "bakeoff_id": state["bakeoff_id"],
+                "status": state["status"],
+                "jobs": len(state["jobs"]),
+                "output": args.output,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_audio_bakeoff_run(args: argparse.Namespace) -> None:
+    try:
+        run_bakeoff(Path(args.output), max_attempts=args.max_attempts)
+        status = bakeoff_status(Path(args.output))
+    except BakeoffError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(status, ensure_ascii=False, indent=2))
+
+
+def cmd_audio_bakeoff_status(args: argparse.Namespace) -> None:
+    try:
+        status = bakeoff_status(Path(args.output))
+    except BakeoffError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(status, ensure_ascii=False, indent=2))
+
+
 def audio_run_id_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--audio-run-id", default=DEFAULT_AUDIO_RUN_ID)
 
@@ -652,6 +695,28 @@ def build_parser() -> argparse.ArgumentParser:
     tts_cmd.add_argument("--previous-text", help="Optional previous text for continuity")
     tts_cmd.add_argument("--next-text", help="Optional next text for continuity")
     tts_cmd.set_defaults(func=cmd_elevenlabs_tts)
+
+    bakeoff_prepare_cmd = sub.add_parser(
+        "audio-bakeoff-prepare",
+        help="Prepare the release-pinned, multi-provider TTS bakeoff",
+    )
+    bakeoff_prepare_cmd.add_argument("--output", default=str(DEFAULT_BAKEOFF_ROOT))
+    bakeoff_prepare_cmd.set_defaults(func=cmd_audio_bakeoff_prepare)
+
+    bakeoff_run_cmd = sub.add_parser(
+        "audio-bakeoff-run",
+        help="Generate and blind all pending TTS bakeoff clips",
+    )
+    bakeoff_run_cmd.add_argument("--output", default=str(DEFAULT_BAKEOFF_ROOT))
+    bakeoff_run_cmd.add_argument("--max-attempts", type=positive_int, default=2)
+    bakeoff_run_cmd.set_defaults(func=cmd_audio_bakeoff_run)
+
+    bakeoff_status_cmd = sub.add_parser(
+        "audio-bakeoff-status",
+        help="Show generation status for the TTS bakeoff",
+    )
+    bakeoff_status_cmd.add_argument("--output", default=str(DEFAULT_BAKEOFF_ROOT))
+    bakeoff_status_cmd.set_defaults(func=cmd_audio_bakeoff_status)
 
     audio_prepare_cmd = sub.add_parser("audio-prepare", help="Prepare a resumable ElevenLabs audio chunk manifest")
     audio_prepare_cmd.add_argument("--run-id")

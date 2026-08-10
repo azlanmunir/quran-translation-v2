@@ -136,6 +136,33 @@ parts, and as one complete-book MP3, copies the book PDFs and publication text, 
 decode pass, and writes a release manifest plus `SHA256SUMS.txt` under
 `output/release/quran-translation-v2`.
 
+## v2.4.1 Narration Bakeoff
+
+The production narration decision uses a release-pinned blind comparison rather than the legacy
+`draft_v3` audio. The harness refuses to run unless the packaged listening edition reproduces the
+approved v2.4.1 text hash. It compares six representative passages across Eleven v3, Eleven
+Multilingual v2, Gemini 2.5 Pro TTS, and Gemini 3.1 Flash TTS while keeping provider identities out
+of the listening package.
+
+Prepare or inspect the resumable run:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m quran_translate.cli audio-bakeoff-prepare
+PYTHONPATH=src .venv/bin/python -m quran_translate.cli audio-bakeoff-status
+```
+
+Generate only missing clips, validate each response with ffprobe, level-match the review copies,
+and build the blind listening page:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m quran_translate.cli audio-bakeoff-run
+```
+
+Raw provider files remain under `output/audio/bakeoffs/<id>/raw`. The review package under
+`output/audio/bakeoffs/<id>/blind` contains only randomized voice codes, checksummed 44.1 kHz
+MP3s, the exact passage text, and a browser-local score exporter. The private key is created once,
+permissioned `0600`, and reused on resume. Generated audio and the key remain outside Git.
+
 ## Bismillah Policy
 
 In this Tanzil XML, Al-Fatihah includes Bismillah as ayah `1:1`. Other surahs store Bismillah as

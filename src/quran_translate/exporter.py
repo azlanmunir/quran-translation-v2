@@ -71,7 +71,7 @@ def export_markdown(conn: sqlite3.Connection, run_id: str, output_dir: Path = OU
 
     path = output_dir / "quran-translation.md"
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# The Quran - Historical Philological Translation\n\n")
+        handle.write("# The Quran - Evidence-Audited Modern English Translation\n\n")
         handle.write(f"*Translation run: `{run_id}`*\n\n")
         handle.write("---\n\n")
         for info in SURAHS:
@@ -94,7 +94,7 @@ def export_bilingual_markdown(conn: sqlite3.Connection, run_id: str, output_dir:
 
     path = output_dir / "quran-bilingual.md"
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# The Quran - Bilingual Translation Draft\n\n")
+        handle.write("# The Quran - Bilingual Evidence-Audited Translation\n\n")
         handle.write(f"*Translation run: `{run_id}`*\n\n")
         handle.write("---\n\n")
         for info in SURAHS:
@@ -159,7 +159,7 @@ def export_glossary(conn: sqlite3.Connection, run_id: str, output_dir: Path = OU
     )
     path = output_dir / "quran-glossary.md"
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# Quran Glossary - Historical Philological Terms\n\n")
+        handle.write("# Quran Translation Glossary\n\n")
         handle.write(f"*Translation run: `{run_id}`*\n\n")
         handle.write(f"**Entries:** {len(rows)}\n\n")
         handle.write("---\n\n")
@@ -169,7 +169,7 @@ def export_glossary(conn: sqlite3.Connection, run_id: str, output_dir: Path = OU
             if row["root"]:
                 handle.write(f"**Root:** {row['root']}\n\n")
             if row["physical_reality"]:
-                handle.write(f"**630 CE Physical Reality:** {row['physical_reality']}\n\n")
+                handle.write(f"**Editorial background:** {row['physical_reality']}\n\n")
             else:
                 handle.write(f"{row['definition']}\n\n")
             refs = (row["refs"] or "").split(",")

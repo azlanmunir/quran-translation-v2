@@ -1,0 +1,13 @@
+{
+  "artifact_count": 18,
+  "checksums_sha256": "6eee30ff1038a74fc2d12376b84c8c78d93a5e6a3f2e0c08cfb822f69ea64146",
+  "created_at": "2026-08-10T00:24:51+00:00",
+  "final_text_sha256": "09e302204ea5ebf90e5e1fcd13ac924495dd7f6bd8585105f1f1933c0557291b",
+  "manifest_sha256": "b2a581a0f97d22e23b0fe4a952465232f99a9780ef8e0ed45d6f675d145312da",
+  "qa_passed": true,
+  "reading_notes_sha256": "a4d190b68ee56e70f0af0a552f62bb04d34fa22885d03cee2620735177da8794",
+  "release_adjudications_sha256": "1828c65522bebf84b3006a2166778fdcf1094c8333448374e994559885b569a8",
+  "release_path": "output/release/quran-translation-v2.4.1",
+  "run_id": "production_v24_3_full_20260807",
+  "version": "translation-release-record-v2.4.1"
+}

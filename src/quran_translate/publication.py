@@ -339,8 +339,13 @@ def export_publication_markdown(conn: sqlite3.Connection, run_id: str, output_di
 
     path = output_dir / "quran-publication.md"
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# The Quran - Historical Philological Translation\n\n")
+        handle.write("# The Quran - Evidence-Audited Modern English Translation\n\n")
         handle.write(f"*Publication layer for translation run: `{run_id}`*\n\n")
+        handle.write(
+            "*AI-assisted translation by Claude Opus 4.6; source-grounded criticism "
+            "and verification by Gemini 3.1 Pro; deterministic QA and documented "
+            "editorial adjudication.*\n\n"
+        )
         handle.write("---\n\n")
         for info in SURAHS:
             handle.write(f"## {info.number:03d}. {info.transliteration}\n\n")

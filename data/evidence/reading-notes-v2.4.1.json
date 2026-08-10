@@ -1,0 +1,146 @@
+{
+  "version": "reading-notes-v2.4.1",
+  "edition_scope": "Selective evidence-adjudicated notes for material grammatical, contextual, lexical, and reading uncertainty. This is not an exhaustive commentary.",
+  "policy": "Include a note only when it names a material translation choice and cites an identified source. Notes may preserve uncertainty; they may not manufacture historical claims from roots or morphology.",
+  "sources": {
+    "TANZIL": {
+      "title": "Tanzil Quran Text, Uthmani Minimal, Version 1.1",
+      "path": "data/source/quran-uthmani-min.xml",
+      "sha256": "f78067cd98c51c03e450581e1e8713f4e7c352e0b62a4fe5c35811da28dd23bf"
+    },
+    "QAC_LOCAL": {
+      "title": "Quranic Arabic Corpus morphology snapshot",
+      "path": "data/evidence/qac-morphology.txt",
+      "sha256": "742bfac59941b2cb09736d5b7aae694af50792261fb8450cbf6afafcc340645f",
+      "license": "GNU General Public License"
+    },
+    "QAC_4_34": {
+      "title": "Quranic Arabic Corpus syntax and morphology for 4:34",
+      "url": "https://corpus.quran.com/treebank.jsp?chapter=4&token=5&verse=34"
+    },
+    "QAC_SMD": {
+      "title": "Quranic Arabic Corpus concordance for root sad-mim-dal",
+      "url": "https://corpus.quran.com/qurandictionary.jsp?q=Smd"
+    },
+    "BUKHARI_4505": {
+      "title": "Sahih al-Bukhari 4505, preserving Ibn Abbas's reading and explanation of 2:184",
+      "url": "https://sunnah.com/bukhari%3A4505"
+    },
+    "LANE_SMD": {
+      "title": "Edward William Lane, Arabic-English Lexicon, root sad-mim-dal",
+      "url": "https://lexicon.quranic-research.net/data/14_S/096_Smd.html",
+      "role": "Later lexical witness preserving earlier lexicographic material"
+    },
+    "PILOT_NOTES": {
+      "title": "Adjudicated pilot reading-note decisions",
+      "sha256": "10c53665c3bb0c3c7ff2dd45b67d933e8602db9a17cfcc32b1700432f7782023"
+    }
+  },
+  "notes": [
+    {
+      "ref": "1:7",
+      "note": "The Arabic leaves the source of the anger unnamed.",
+      "evidence": ["TANZIL:1:7", "QAC_LOCAL:1:7", "PILOT_NOTES:1:7"]
+    },
+    {
+      "ref": "2:177",
+      "note": "The pronoun in 'despite loving it' can point to the wealth or to God; this edition follows the nearer antecedent, the wealth.",
+      "evidence": ["TANZIL:2:177", "QAC_LOCAL:2:177", "PILOT_NOTES:2:177"]
+    },
+    {
+      "ref": "2:184",
+      "note": "The received text says 'those who can manage it.' A reading attributed to Ibn Abbas instead carries the sense of being made to bear fasting with difficulty and applies the provision to elderly people unable to fast. This edition follows the received reading in the body text and records the early reading here.",
+      "evidence": ["TANZIL:2:184", "QAC_LOCAL:2:184", "BUKHARI_4505"]
+    },
+    {
+      "ref": "4:34",
+      "note": "This edition renders qawwamun, nushuz, and idribuhunna as 'caretakers,' 'defiance,' and 'strike.' In the last command, the women are the direct object; the Arabic line itself does not specify manner, severity, or motive. Those further limits belong to interpretation rather than to the wording translated here.",
+      "evidence": ["TANZIL:4:34", "QAC_LOCAL:4:34", "QAC_4_34"]
+    },
+    {
+      "ref": "5:45",
+      "note": "The Arabic 'for him' can refer to the person who gives up retaliation or to the offender who is forgiven; the pronoun does not settle the referent.",
+      "evidence": ["TANZIL:5:45", "QAC_LOCAL:5:45", "PILOT_NOTES:5:45"]
+    },
+    {
+      "ref": "8:5",
+      "note": "The opening 'just as' has no explicit comparison point in this sentence; it can reach back to the spoils ruling or to the description of the believers.",
+      "evidence": ["TANZIL:8:1-5", "QAC_LOCAL:8:5", "PILOT_NOTES:8:5"]
+    },
+    {
+      "ref": "8:17",
+      "note": "The address shifts from plural 'you' for the fighters to singular 'you' at 'you did not throw.'",
+      "evidence": ["TANZIL:8:17", "QAC_LOCAL:8:17", "PILOT_NOTES:8:17"]
+    },
+    {
+      "ref": "9:127",
+      "note": "The Arabic can be heard as a statement, 'God has turned their hearts,' or as a plea, 'May God turn their hearts.' This edition reads it as a statement.",
+      "evidence": ["TANZIL:9:127", "QAC_LOCAL:9:127", "PILOT_NOTES:9:127"]
+    },
+    {
+      "ref": "12:92",
+      "note": "'Today' can close the preceding words, 'no blame on you today,' or open the next, 'today God forgives you.' This edition follows the first attachment.",
+      "evidence": ["TANZIL:12:92", "QAC_LOCAL:12:92", "PILOT_NOTES:12:92"]
+    },
+    {
+      "ref": "18:44",
+      "note": "The Arabic 'the True' can grammatically describe God or the authority named in the clause; this edition takes it with God.",
+      "evidence": ["TANZIL:18:44", "QAC_LOCAL:18:44", "PILOT_NOTES:18:44"]
+    },
+    {
+      "ref": "19:24",
+      "note": "The caller is not named in the Arabic; the masculine singular can point to the newborn or to the spirit who appeared earlier.",
+      "evidence": ["TANZIL:19:17-24", "QAC_LOCAL:19:24", "PILOT_NOTES:19:24"]
+    },
+    {
+      "ref": "19:26",
+      "note": "The vow is defined by the next words: she will not speak to anyone that day.",
+      "evidence": ["TANZIL:19:26", "QAC_LOCAL:19:26", "PILOT_NOTES:19:26"]
+    },
+    {
+      "ref": "19:34",
+      "note": "The grammar can attach 'the word of truth' to this account or to Jesus, and 'about which' can point to Jesus or to the statement.",
+      "evidence": ["TANZIL:19:34", "QAC_LOCAL:19:34", "PILOT_NOTES:19:34"]
+    },
+    {
+      "ref": "36:35",
+      "note": "The Arabic particle can negate the clause, 'their hands did not make it,' or introduce what their hands produced. This edition follows the negative reading.",
+      "evidence": ["TANZIL:36:35", "QAC_LOCAL:36:35", "PILOT_NOTES:36:35"]
+    },
+    {
+      "ref": "36:41",
+      "note": "The scope of 'their offspring' is not explicit in the clause.",
+      "evidence": ["TANZIL:36:41", "QAC_LOCAL:36:41", "PILOT_NOTES:36:41"]
+    },
+    {
+      "ref": "36:42",
+      "note": "The Arabic does not name what 'the like of it' refers back to.",
+      "evidence": ["TANZIL:36:42", "QAC_LOCAL:36:42", "PILOT_NOTES:36:42"]
+    },
+    {
+      "ref": "49:1",
+      "note": "The Arabic command can mean 'do not move ahead' without an object or 'do not put anything ahead' with the object left unstated; both prohibit presuming ahead of God and His messenger.",
+      "evidence": ["TANZIL:49:1", "QAC_LOCAL:49:1", "PILOT_NOTES:49:1"]
+    },
+    {
+      "ref": "55:6",
+      "note": "Here al-najm is paired with trees under one dual verb, supporting 'ground-level plants'; elsewhere the same word can name a star.",
+      "evidence": ["TANZIL:55:6", "QAC_LOCAL:55:6", "PILOT_NOTES:55:6"]
+    },
+    {
+      "ref": "75:5",
+      "note": "'Ahead of him' can point to the time stretching before the person or to the coming Day; this edition takes it temporally.",
+      "evidence": ["TANZIL:75:5", "QAC_LOCAL:75:5", "PILOT_NOTES:75:5"]
+    },
+    {
+      "ref": "75:14",
+      "note": "The Arabic predicate is feminine although 'the human being' is masculine; this edition takes the phrase as the person being a witness against himself.",
+      "evidence": ["TANZIL:75:14", "QAC_LOCAL:75:14", "PILOT_NOTES:75:14"]
+    },
+    {
+      "ref": "112:2",
+      "note": "Al-samad occurs only here in the Quran. Lexical witnesses preserve several senses, including the one to whom people turn in need, the one on whom affairs depend, the everlasting, and the solid or impenetrable. This edition follows the first cluster: 'the one all depend on.'",
+      "evidence": ["TANZIL:112:2", "QAC_LOCAL:112:2", "QAC_SMD", "LANE_SMD"]
+    }
+  ]
+}

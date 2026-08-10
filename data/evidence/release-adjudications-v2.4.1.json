@@ -1,0 +1,277 @@
+{
+  "version": "release-adjudications-v2.4.1",
+  "run_id": "production_v24_3_full_20260807",
+  "policy": "Post-production editorial decisions. The completed production artifacts remain immutable; these decisions are applied to the persisted translation with exact before-text guards and recorded provenance.",
+  "decisions": [
+    {
+      "ref": "2:32",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to You!",
+      "after": "How perfect You are!",
+      "rationale": "Render the exclamation by sense rather than the inherited English formula."
+    },
+    {
+      "ref": "3:191",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "glory be to You",
+      "after": "how perfect You are",
+      "rationale": "Render the exclamation by sense rather than the inherited English formula."
+    },
+    {
+      "ref": "6:100",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to Him! He is far above",
+      "after": "He is perfect, and far above",
+      "rationale": "Join the declaration of perfection to the explicit following statement of transcendence."
+    },
+    {
+      "ref": "7:143",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to You!",
+      "after": "How perfect You are!",
+      "rationale": "Preserve the direct exclamation without the inherited formula."
+    },
+    {
+      "ref": "10:10",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to You, O God!",
+      "after": "How perfect You are, O God!",
+      "rationale": "Preserve the direct speech and refrain-like force without the inherited formula."
+    },
+    {
+      "ref": "12:108",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God",
+      "after": "God is perfect",
+      "rationale": "State the semantic claim directly in modern English."
+    },
+    {
+      "ref": "17:1",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to the One",
+      "after": "How perfect is the One",
+      "rationale": "Retain the opening exclamation while removing the inherited formula."
+    },
+    {
+      "ref": "17:42",
+      "action": "retain",
+      "category": "dhi_authority_title",
+      "expected": "Lord of the Throne",
+      "rationale": "The Arabic is dhi al-arsh, not rabb al-arsh. Here Lord is retained as a natural English authority title; it is not a breach of the ledger rule that normally renders rabb as Master."
+    },
+    {
+      "ref": "17:43",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to Him! He is far exalted",
+      "after": "He is perfect, far exalted",
+      "rationale": "Join the declaration of perfection to the explicit following statement of exaltation."
+    },
+    {
+      "ref": "17:93",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to my Master!",
+      "after": "My Master is perfect!",
+      "rationale": "State the semantic claim directly in the speaker's voice."
+    },
+    {
+      "ref": "17:108",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to our Master!",
+      "after": "How perfect our Master is!",
+      "rationale": "Preserve the direct exclamation without the inherited formula."
+    },
+    {
+      "ref": "21:22",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God, Master of the Throne, far above",
+      "after": "So God, Master of the Throne, is far above",
+      "rationale": "The following phrase already states the transcendence, so avoid duplicating it through a formula."
+    },
+    {
+      "ref": "21:26",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to Him!",
+      "after": "He is perfect!",
+      "rationale": "State the semantic claim directly."
+    },
+    {
+      "ref": "21:87",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to You!",
+      "after": "How perfect You are!",
+      "rationale": "Preserve the direct exclamation without the inherited formula."
+    },
+    {
+      "ref": "23:91",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God, far above",
+      "after": "God is far above",
+      "rationale": "The explicit following phrase carries the intended transcendence without a doubled formula."
+    },
+    {
+      "ref": "24:16",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to You!",
+      "after": "You are far above such a thing!",
+      "rationale": "Use a context-specific denial in the accusation scene."
+    },
+    {
+      "ref": "25:18",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to You!",
+      "after": "How perfect You are!",
+      "rationale": "Preserve the direct exclamation without the inherited formula."
+    },
+    {
+      "ref": "27:8",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God",
+      "after": "How perfect is God",
+      "rationale": "Preserve the exclamation without the inherited formula."
+    },
+    {
+      "ref": "28:68",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God, far above",
+      "after": "God is perfect, and far above",
+      "rationale": "State both source claims directly without the inherited formula."
+    },
+    {
+      "ref": "30:17",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "So glory to God",
+      "after": "So proclaim God's perfection",
+      "rationale": "Render the verbal force as an intelligible act of praise."
+    },
+    {
+      "ref": "30:40",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to Him—far above",
+      "after": "He is perfect, far above",
+      "rationale": "Join the declaration of perfection to the explicit following statement of transcendence."
+    },
+    {
+      "ref": "34:41",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to You!",
+      "after": "How perfect You are!",
+      "rationale": "Preserve the direct exclamation without the inherited formula."
+    },
+    {
+      "ref": "36:36",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to the One",
+      "after": "How perfect is the One",
+      "rationale": "Retain the opening exclamation while removing the inherited formula."
+    },
+    {
+      "ref": "36:83",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "So glory to the One",
+      "after": "So how perfect is the One",
+      "rationale": "Retain the closing exclamation while removing the inherited formula."
+    },
+    {
+      "ref": "37:159",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God, above",
+      "after": "God is far above",
+      "rationale": "The direct statement expresses the source's transcendence claim more naturally."
+    },
+    {
+      "ref": "37:166",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "declare glory",
+      "after": "proclaim His perfection",
+      "rationale": "Render the participle by sense rather than reproducing the inherited formula's key noun."
+    },
+    {
+      "ref": "37:180",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to your Master, the Master of might, far above",
+      "after": "Your Master, the Master of might, is far above",
+      "rationale": "The direct statement expresses the source's transcendence claim without a doubled formula."
+    },
+    {
+      "ref": "39:4",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to Him!",
+      "after": "He is perfect!",
+      "rationale": "State the semantic claim directly."
+    },
+    {
+      "ref": "39:67",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to Him—far above",
+      "after": "He is perfect, far above",
+      "rationale": "Join the declaration of perfection to the explicit following statement of transcendence."
+    },
+    {
+      "ref": "43:13",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to the One",
+      "after": "How perfect is the One",
+      "rationale": "Preserve the quoted exclamation without the inherited formula."
+    },
+    {
+      "ref": "43:82",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory to the Master of the heavens and the earth, Master of the Throne—far above",
+      "after": "The Master of the heavens and the earth, Master of the Throne, is far above",
+      "rationale": "The direct statement expresses the source's transcendence claim without a doubled formula."
+    },
+    {
+      "ref": "52:43",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to God, far above",
+      "after": "God is far above",
+      "rationale": "The direct statement expresses the source's transcendence claim more naturally."
+    },
+    {
+      "ref": "68:29",
+      "action": "change",
+      "category": "subhana_formula",
+      "before": "Glory be to our Master!",
+      "after": "Our Master is perfect!",
+      "rationale": "State the semantic claim directly in the speakers' voice."
+    },
+    {
+      "ref": "70:3",
+      "action": "retain",
+      "category": "dhi_authority_title",
+      "expected": "Lord of the ways of ascent",
+      "rationale": "The Arabic is dhi al-maarij, not rabb al-maarij. Here Lord is retained as a natural English authority title; it is not a breach of the ledger rule that normally renders rabb as Master."
+    }
+  ]
+}

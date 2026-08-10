@@ -46,7 +46,12 @@ from .elevenlabs_tts import (
 from .exporter import export_all
 from .gemini_client import RetryConfig
 from .prompt_builder import build_batch_payload, build_prompt
-from .book_pdf import render_book_pdf, render_reader_pdf, write_pdf_inspection
+from .book_pdf import (
+    render_annotated_pdf,
+    render_book_pdf,
+    render_reader_pdf,
+    write_pdf_inspection,
+)
 from .publication import (
     build_publication_layer,
     export_publication_all,
@@ -55,6 +60,13 @@ from .publication import (
 from .source_import import import_tanzil_xml
 from .translation_runner import translate_batches
 from .validation import persist_issues, validate_run, validate_source
+from .release_hardening import (
+    READING_NOTES_PATH,
+    RELEASE_VERSION,
+    apply_release_adjudications,
+    create_release_package,
+    run_final_quality_gate,
+)
 
 
 def positive_int(value: str) -> int:
@@ -265,6 +277,94 @@ def cmd_reader_pdf(args: argparse.Namespace) -> None:
                 "pdf": str(path),
                 "inspection": str(inspection_path),
                 "bytes": path.stat().st_size,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_annotated_pdf(args: argparse.Namespace) -> None:
+    with open_db(args) as conn:
+        init_db(conn)
+        run_id = require_run_id(conn, args.run_id)
+        path = render_annotated_pdf(
+            conn,
+            run_id,
+            Path(args.output),
+            Path(args.notes),
+        )
+        inspection_path = write_pdf_inspection(path)
+    print(
+        json.dumps(
+            {
+                "pdf": str(path),
+                "inspection": str(inspection_path),
+                "bytes": path.stat().st_size,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_release_harden(args: argparse.Namespace) -> None:
+    with open_db(args) as conn:
+        init_db(conn)
+        run_id = require_run_id(conn, args.run_id)
+        marker = apply_release_adjudications(conn, run_id)
+        publication_stats = build_publication_layer(conn, run_id)
+        translation_paths = export_all(conn, run_id, OUTPUT_DIR)
+        publication_paths = export_publication_all(
+            conn,
+            run_id,
+            OUTPUT_DIR / "publication",
+        )
+        pdfs = [
+            render_book_pdf(
+                conn,
+                run_id,
+                OUTPUT_DIR / "book" / "quran-translation-book.pdf",
+            ),
+            render_reader_pdf(
+                conn,
+                run_id,
+                OUTPUT_DIR / "book" / "quran-translation-reader-edition.pdf",
+            ),
+            render_annotated_pdf(
+                conn,
+                run_id,
+                OUTPUT_DIR / "book" / "quran-translation-annotated-reading-edition.pdf",
+                Path(args.notes),
+            ),
+        ]
+        inspections = [write_pdf_inspection(path) for path in pdfs]
+        notes_payload = json.loads(Path(args.notes).read_text(encoding="utf-8"))
+        notes_path = Path(args.notes)
+        qa_report = run_final_quality_gate(
+            conn,
+            run_id,
+            marker,
+            notes_payload,
+            notes_path,
+        )
+        release = create_release_package(
+            run_id,
+            qa_report,
+            release_version=args.release_version,
+            notes_path=notes_path,
+        )
+    print(
+        json.dumps(
+            {
+                "adjudications": marker,
+                "publication": publication_stats,
+                "translation_exports": [str(path) for path in translation_paths],
+                "publication_exports": [str(path) for path in publication_paths],
+                "pdfs": [str(path) for path in pdfs],
+                "inspections": [str(path) for path in inspections],
+                "qa": qa_report,
+                "release": release,
             },
             ensure_ascii=False,
             indent=2,
@@ -508,6 +608,32 @@ def build_parser() -> argparse.ArgumentParser:
     reader_pdf_cmd.add_argument("--run-id")
     reader_pdf_cmd.add_argument("--output", default=str(OUTPUT_DIR / "book" / "quran-translation-reader-edition.pdf"))
     reader_pdf_cmd.set_defaults(func=cmd_reader_pdf)
+
+    annotated_pdf_cmd = sub.add_parser(
+        "annotated-pdf",
+        help="Render the evidence-adjudicated annotated reading edition",
+    )
+    annotated_pdf_cmd.add_argument("--run-id")
+    annotated_pdf_cmd.add_argument(
+        "--notes",
+        default=str(READING_NOTES_PATH),
+    )
+    annotated_pdf_cmd.add_argument(
+        "--output",
+        default=str(
+            OUTPUT_DIR / "book" / "quran-translation-annotated-reading-edition.pdf"
+        ),
+    )
+    annotated_pdf_cmd.set_defaults(func=cmd_annotated_pdf)
+
+    release_harden_cmd = sub.add_parser(
+        "release-harden",
+        help="Apply tracked post-production adjudications and build a QA-gated release",
+    )
+    release_harden_cmd.add_argument("--run-id", required=True)
+    release_harden_cmd.add_argument("--notes", default=str(READING_NOTES_PATH))
+    release_harden_cmd.add_argument("--release-version", default=RELEASE_VERSION)
+    release_harden_cmd.set_defaults(func=cmd_release_harden)
 
     voices_cmd = sub.add_parser("elevenlabs-voices", help="List ElevenLabs voices")
     voices_cmd.add_argument("--limit", type=positive_int, default=20)

@@ -6,6 +6,7 @@ import html
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -17,7 +18,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import BaseDocTemplate, Frame, PageBreak, PageTemplate, Paragraph, Spacer
 from reportlab.platypus.tableofcontents import TableOfContents
 
-from .config import OUTPUT_DIR
+from .config import OUTPUT_DIR, PROJECT_ROOT
 from .metadata import SURAHS
 from .publication import publication_rows
 
@@ -25,6 +26,8 @@ from .publication import publication_rows
 BOOK_DIR = OUTPUT_DIR / "book"
 PAGE_SIZE = (6 * inch, 9 * inch)
 FONT_DIR = Path("/System/Library/Fonts/Supplemental")
+EDITION_SUBTITLE = "Evidence-Audited Modern English Translation"
+DEFAULT_READING_NOTES = PROJECT_ROOT / "data" / "evidence" / "reading-notes-v2.4.1.json"
 
 
 def register_fonts() -> str:
@@ -72,7 +75,7 @@ class QuranBookTemplate(BaseDocTemplate):
             bottomMargin=0.66 * unit_inch,
             title=title,
             author="Azlan Munir",
-            subject="Historical philological English Quran translation",
+            subject="Evidence-audited modern English Quran translation",
         )
         frame = Frame(
             self.leftMargin,
@@ -213,7 +216,103 @@ def build_styles(base_font: str) -> dict[str, ParagraphStyle]:
             textColor=colors.HexColor("#231F1A"),
         )
     )
+    styles.add(
+        ParagraphStyle(
+            name="ReadingNote",
+            parent=styles["BodyText"],
+            fontName=base_font,
+            fontSize=8.35,
+            leading=11.7,
+            leftIndent=14,
+            rightIndent=5,
+            borderColor=colors.HexColor("#B9AEA1"),
+            borderWidth=0.45,
+            borderPadding=(5, 6, 5, 7),
+            backColor=colors.HexColor("#F5F2EE"),
+            spaceBefore=0,
+            spaceAfter=8,
+            textColor=colors.HexColor("#3D3731"),
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="EvidenceSource",
+            parent=styles["BodyText"],
+            fontName=base_font,
+            fontSize=8.15,
+            leading=11.5,
+            leftIndent=10,
+            firstLineIndent=-10,
+            spaceAfter=5,
+            textColor=colors.HexColor("#3D3731"),
+        )
+    )
     return styles
+
+
+def publication_note_parts(edition: str) -> list[str]:
+    edition_notes = {
+        "book": "This print edition keeps every line anchored to its standard surah and ayah reference.",
+        "reader": (
+            "This reader edition removes inline ayah labels from the body text so the "
+            "translation can be read in paragraph form. Each page carries a surah and "
+            "ayah range for navigation."
+        ),
+        "annotated": (
+            "This annotated reading edition keeps ayah references and adds a selective "
+            "set of evidence-adjudicated notes. It is not an exhaustive commentary."
+        ),
+    }
+    if edition not in edition_notes:
+        raise ValueError(f"Unknown publication edition: {edition}")
+    return [
+        edition_notes[edition],
+        "Source Arabic text: Tanzil Quran Text, Uthmani Minimal, Version 1.1. Quranic Arabic Corpus morphology supports source analysis.",
+        (
+            "Method: choose the best-supported contextual sense before considering "
+            "etymology; preserve material ambiguity; then shape the result into natural "
+            "spoken English without adding imagery, agency, motive, or judgment."
+        ),
+        (
+            "Production provenance: AI-assisted translation by Claude Opus 4.6, "
+            "source-grounded criticism and verification by Gemini 3.1 Pro, deterministic "
+            "quality gates, and documented editorial adjudication."
+        ),
+    ]
+
+
+def _front_matter(
+    story: list,
+    styles: dict[str, ParagraphStyle],
+    *,
+    edition_label: str,
+    edition_key: str,
+) -> None:
+    story.append(Spacer(1, 1.35 * unit_inch))
+    story.append(Paragraph("The Quran", styles["BookTitle"]))
+    story.append(Paragraph(EDITION_SUBTITLE, styles["BookSubtitle"]))
+    story.append(Paragraph(edition_label, styles["BookSubtitle"]))
+    story.append(PageBreak())
+    story.append(Paragraph("Publication Note", styles["TocTitle"]))
+    for part in publication_note_parts(edition_key):
+        story.append(Paragraph(part, styles["FrontMatter"]))
+    story.append(PageBreak())
+
+
+def _toc(styles: dict[str, ParagraphStyle], base_font: str, style_name: str) -> list:
+    toc = TableOfContents()
+    toc.levelStyles = [
+        ParagraphStyle(
+            name=style_name,
+            fontName=base_font,
+            fontSize=9.2,
+            leading=13,
+            leftIndent=0,
+            firstLineIndent=0,
+            spaceBefore=2,
+        )
+    ]
+    return [Paragraph("Contents", styles["TocTitle"]), toc, PageBreak()]
 
 
 def _surah_heading(number: int, transliteration: str) -> str:
@@ -306,45 +405,14 @@ def render_book_pdf(conn: sqlite3.Connection, run_id: str, output_path: Path | N
     for row in rows:
         by_surah.setdefault(int(row["surah_number"]), []).append(row)
 
-    title = "The Quran"
     story: list = []
-    story.append(Spacer(1, 1.45 * unit_inch))
-    story.append(Paragraph(title, styles["BookTitle"]))
-    story.append(Paragraph("Historical Philological Translation", styles["BookSubtitle"]))
-    story.append(Spacer(1, 0.28 * unit_inch))
-    story.append(
-        Paragraph(
-            "A modern English rendering shaped around physical root meanings, plain speech, and stable ayah references.",
-            styles["BookSubtitle"],
-        )
+    _front_matter(
+        story,
+        styles,
+        edition_label="Print Edition",
+        edition_key="book",
     )
-    story.append(PageBreak())
-
-    story.append(Paragraph("Publication Note", styles["TocTitle"]))
-    note_parts = [
-        "This English-only reading edition keeps every line anchored to the standard surah and ayah reference.",
-        "Source Arabic text: Tanzil Quran Text, Uthmani Minimal, Version 1.1.",
-        "The wording follows a historical-philological style guide: plain modern English, physical root imagery, and no bracketed glosses inside the translation.",
-    ]
-    for part in note_parts:
-        story.append(Paragraph(part, styles["FrontMatter"]))
-    story.append(PageBreak())
-
-    toc = TableOfContents()
-    toc.levelStyles = [
-        ParagraphStyle(
-            name="TOCLevel0",
-            fontName=base_font,
-            fontSize=9.2,
-            leading=13,
-            leftIndent=0,
-            firstLineIndent=0,
-            spaceBefore=2,
-        )
-    ]
-    story.append(Paragraph("Contents", styles["TocTitle"]))
-    story.append(toc)
-    story.append(PageBreak())
+    story.extend(_toc(styles, base_font, "TOCLevel0"))
 
     for index, info in enumerate(SURAHS):
         if index:
@@ -356,7 +424,7 @@ def render_book_pdf(conn: sqlite3.Connection, run_id: str, output_path: Path | N
             style = styles["AyahSmall"] if len(row["translation"]) > 900 else styles["Ayah"]
             story.append(Paragraph(f"<b>{ref}</b>&nbsp;&nbsp;{text}", style))
 
-    doc = QuranBookTemplate(str(path), title=title)
+    doc = QuranBookTemplate(str(path), title="The Quran")
     doc.multiBuild(story)
     return path
 
@@ -371,37 +439,13 @@ def _reader_story(
         by_surah.setdefault(int(row["surah_number"]), []).append(row)
 
     story: list = []
-    story.append(Spacer(1, 1.45 * unit_inch))
-    story.append(Paragraph("The Quran", styles["BookTitle"]))
-    story.append(Paragraph("Historical Philological Translation", styles["BookSubtitle"]))
-    story.append(Paragraph("Reader Edition", styles["BookSubtitle"]))
-    story.append(PageBreak())
-
-    story.append(Paragraph("Publication Note", styles["TocTitle"]))
-    note_parts = [
-        "This reader edition removes inline ayah labels from the body text so the translation can be read in paragraph form.",
-        "Each page carries a small surah and ayah range in the header for navigation.",
-        "Source Arabic text: Tanzil Quran Text, Uthmani Minimal, Version 1.1.",
-    ]
-    for part in note_parts:
-        story.append(Paragraph(part, styles["FrontMatter"]))
-    story.append(PageBreak())
-
-    toc = TableOfContents()
-    toc.levelStyles = [
-        ParagraphStyle(
-            name="ReaderTOCLevel0",
-            fontName=base_font,
-            fontSize=9.2,
-            leading=13,
-            leftIndent=0,
-            firstLineIndent=0,
-            spaceBefore=2,
-        )
-    ]
-    story.append(Paragraph("Contents", styles["TocTitle"]))
-    story.append(toc)
-    story.append(PageBreak())
+    _front_matter(
+        story,
+        styles,
+        edition_label="Reader Edition",
+        edition_key="reader",
+    )
+    story.extend(_toc(styles, base_font, "ReaderTOCLevel0"))
 
     for index, info in enumerate(SURAHS):
         if index:
@@ -445,10 +489,109 @@ def render_reader_pdf(conn: sqlite3.Connection, run_id: str, output_path: Path |
     return path
 
 
-def inspect_pdf(path: Path) -> dict[str, object]:
-    import fitz
+def _evidence_label(evidence_ref: str, sources: dict[str, dict[str, str]]) -> str | None:
+    source_id, _, locator = evidence_ref.partition(":")
+    if source_id == "PILOT_NOTES":
+        return None
+    source = sources[source_id]
+    short_names = {
+        "TANZIL": "Tanzil",
+        "QAC_LOCAL": "QAC morphology",
+        "QAC_4_34": "QAC syntax 4:34",
+        "QAC_SMD": "QAC root concordance",
+        "BUKHARI_4505": "Sahih al-Bukhari 4505",
+        "LANE_SMD": "Lane's Lexicon, root sad-mim-dal",
+    }
+    label = short_names.get(source_id, source["title"])
+    return f"{label} {locator}".strip()
 
-    doc = fitz.open(path)
+
+def _annotated_story(
+    rows: list[sqlite3.Row],
+    styles: dict[str, ParagraphStyle],
+    base_font: str,
+    notes_payload: dict[str, Any],
+) -> list:
+    by_surah: dict[int, list[sqlite3.Row]] = {}
+    for row in rows:
+        by_surah.setdefault(int(row["surah_number"]), []).append(row)
+    notes = {entry["ref"]: entry for entry in notes_payload["notes"]}
+    sources = notes_payload["sources"]
+
+    story: list = []
+    _front_matter(
+        story,
+        styles,
+        edition_label="Annotated Reading Edition",
+        edition_key="annotated",
+    )
+    story.extend(_toc(styles, base_font, "AnnotatedTOCLevel0"))
+
+    for index, info in enumerate(SURAHS):
+        if index:
+            story.append(PageBreak())
+        story.append(Paragraph(_surah_heading(info.number, info.transliteration), styles["SurahHeading"]))
+        for row in by_surah.get(info.number, []):
+            ref = str(row["verse_key"])
+            text = html.escape(row["translation"])
+            style = styles["AyahSmall"] if len(row["translation"]) > 900 else styles["Ayah"]
+            story.append(Paragraph(f"<b>{html.escape(ref)}</b>&nbsp;&nbsp;{text}", style))
+            note = notes.get(ref)
+            if note:
+                labels = [
+                    label
+                    for evidence_ref in note["evidence"]
+                    if (label := _evidence_label(evidence_ref, sources))
+                ]
+                evidence = "; ".join(labels)
+                story.append(
+                    Paragraph(
+                        f"<b>Reading note.</b> {html.escape(note['note'])}"
+                        f"<br/><font size='7.4' color='#6B6259'><i>Evidence: "
+                        f"{html.escape(evidence)}.</i></font>",
+                        styles["ReadingNote"],
+                    )
+                )
+
+    story.append(PageBreak())
+    story.append(Paragraph("Evidence Sources", styles["TocTitle"]))
+    for source_id, source in sources.items():
+        if source_id == "PILOT_NOTES":
+            continue
+        details = source["title"]
+        if source.get("url"):
+            details += f" - {source['url']}"
+        elif source.get("path"):
+            details += f" - {source['path']} (SHA-256 {source['sha256']})"
+        story.append(Paragraph(html.escape(details), styles["EvidenceSource"]))
+    return story
+
+
+def render_annotated_pdf(
+    conn: sqlite3.Connection,
+    run_id: str,
+    output_path: Path | None = None,
+    notes_path: Path = DEFAULT_READING_NOTES,
+) -> Path:
+    BOOK_DIR.mkdir(parents=True, exist_ok=True)
+    path = output_path or (BOOK_DIR / "quran-translation-annotated-reading-edition.pdf")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = publication_rows(conn, run_id)
+    if not rows:
+        raise SystemExit(f"No publication layer found for {run_id}; run publication-build first.")
+    notes_payload = json.loads(notes_path.read_text(encoding="utf-8"))
+    base_font = register_fonts()
+    styles = build_styles(base_font)
+    doc = QuranBookTemplate(str(path), title="The Quran")
+    doc.multiBuild(_annotated_story(rows, styles, base_font, notes_payload))
+    return path
+
+
+def inspect_pdf(path: Path) -> dict[str, object]:
+    import pymupdf
+
+    doc = pymupdf.open(path)
     text_chars = 0
     pages_without_text: list[int] = []
     for page_index in range(doc.page_count):

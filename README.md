@@ -163,6 +163,13 @@ Raw provider files remain under `output/audio/bakeoffs/<id>/raw`. The review pac
 MP3s, the exact passage text, and a browser-local score exporter. The private key is created once,
 permissioned `0600`, and reused on resume. Generated audio and the key remain outside Git.
 
+The completed blind process selected Nathan on Eleven v3, lowered 1.25 semitones with Rubber
+Band's R3 fine engine and formant preservation. The final comparison covered consolation,
+eschatological oaths, and sustained narrative. No global time stretch is approved: the runner-up's
+slower delivery varied materially by passage, while the selected voice won overall and especially
+on the two more demanding samples. The machine-readable decision and its evidence hashes are in
+`releases/quran-translation-v2.4.1-audio-voice.json`.
+
 ## Bismillah Policy
 
 In this Tanzil XML, Al-Fatihah includes Bismillah as ayah `1:1`. Other surahs store Bismillah as

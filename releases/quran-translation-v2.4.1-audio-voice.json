@@ -1,0 +1,35 @@
+{
+  "created_at": "2026-08-12T04:12:36Z",
+  "final_text_sha256": "09e302204ea5ebf90e5e1fcd13ac924495dd7f6bd8585105f1f1933c0557291b",
+  "narration": {
+    "model_id": "eleven_v3",
+    "provider": "ElevenLabs",
+    "voice_id": "lWDDHwXsJXJM7nv2YgHY",
+    "voice_label": "Nathan - Natural Narrator"
+  },
+  "pacing_policy": {
+    "global_time_stretch": 1.0,
+    "rationale": "Preserve the winning performance; validate any inter-ayah spacing separately at assembly time."
+  },
+  "pitch_processing": {
+    "engine": "R3 fine",
+    "formant_preservation": true,
+    "pitch_semitones": -1.25,
+    "tool": "Rubber Band",
+    "tool_version": "4.0.0"
+  },
+  "release_version": "v2.4.1",
+  "selection": {
+    "blind_code": "Voice C",
+    "decision": "Selected overall, especially for The Folding Up and Mary.",
+    "runner_up": "Gemini 2.5 Pro TTS with Charon",
+    "runner_up_blind_code": "Voice D",
+    "runner_up_note": "Slightly preferred pacing, but the difference was minor and did not outweigh Voice C's overall performance."
+  },
+  "shootout": {
+    "blind_manifest_sha256": "57bc27997da34a5631f588876460decb24d937802f850ca6618a339cd3cdf1bc",
+    "input_fingerprint": "9606aeab54c2ab40e65f071a1747688c1d8200cbc17c5befb75ae6f131a4dd82",
+    "shootout_id": "quran-v2.4.1-tts-finalists-20260811"
+  },
+  "version": "audio-narrator-selection-v1"
+}

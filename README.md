@@ -170,6 +170,44 @@ slower delivery varied materially by passage, while the selected voice won overa
 on the two more demanding samples. The machine-readable decision and its evidence hashes are in
 `releases/quran-translation-v2.4.1-audio-voice.json`.
 
+## v2.4.1 Production Audiobook
+
+The production audio runner consumes only the frozen, QA-passed v2.4.1 listening edition. It
+verifies the release manifest and all 6,236 references, reproduces the approved final text hash,
+and writes an immutable 313-job manifest. Chunks never cross a surah or canonical juz boundary.
+Canonical juz ranges are pinned in `data/evidence/juz-boundaries-v1.json` with Quran.Foundation
+provenance.
+
+Prepare or inspect the run without making a provider request:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m quran_translate.cli audio-production-prepare
+PYTHONPATH=src .venv/bin/python -m quran_translate.cli audio-production-status
+```
+
+The approved production source format is lossless 44.1 kHz PCM, which requires an ElevenLabs Pro
+subscription. Every provider response is atomically checkpointed before Rubber Band R3 lowers it
+1.25 semitones with formants preserved. The processed WAV master is then encoded once to a 192
+kbps MP3 master. Completed chunks are reused on every resume.
+
+```bash
+PYTHONPATH=src .venv/bin/python -u -m quran_translate.cli \
+  audio-production-synthesize --max-attempts 2 --request-timeout 600
+```
+
+After all chunks pass format, duration, and hash checks, one command produces the 114 surah files,
+30 canonical juz files, and one full-book MP3. Approximately 40-minute tracks are optional and cut
+only between master chunks; they never trigger more TTS generation.
+
+```bash
+PYTHONPATH=src .venv/bin/python -m quran_translate.cli \
+  audio-production-assemble --decode-check
+```
+
+The frozen plan contains 750,096 billable characters. At the account rate recorded during the
+preflight, a clean pass is about $150 on PAYG alone. One month of Pro plus a modest PAYG reserve is
+both cheaper and higher quality because Pro includes 600,000 credits and unlocks lossless PCM.
+
 ## Bismillah Policy
 
 In this Tanzil XML, Al-Fatihah includes Bismillah as ayah `1:1`. Other surahs store Bismillah as

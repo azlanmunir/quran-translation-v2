@@ -22,6 +22,17 @@ from .audio_pipeline import (
     write_audio_manifest,
 )
 from .audio_release import DEFAULT_RELEASE_ROOT, create_audio_release
+from .audio_production import (
+    DEFAULT_AUDIO_RUN_ID as DEFAULT_PRODUCTION_AUDIO_RUN_ID,
+    DEFAULT_CHUNK_TARGET_CHARS as DEFAULT_PRODUCTION_CHUNK_TARGET_CHARS,
+    DEFAULT_COST_PER_THOUSAND_USD,
+    DEFAULT_SOURCE_FORMAT as DEFAULT_PRODUCTION_SOURCE_FORMAT,
+    AudioProductionError,
+    assemble_audio_release,
+    prepare_audio_production,
+    production_audio_status,
+    synthesize_audio_production,
+)
 from .audio_bakeoff import (
     DEFAULT_BAKEOFF_ROOT,
     BakeoffError,
@@ -78,6 +89,13 @@ from .release_hardening import (
 
 def positive_int(value: str) -> int:
     parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be positive")
     return parsed
@@ -579,6 +597,76 @@ def cmd_audio_release(args: argparse.Namespace) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def cmd_audio_production_prepare(args: argparse.Namespace) -> None:
+    try:
+        state = prepare_audio_production(
+            audio_run_id=args.audio_run_id,
+            target_chars=args.chunk_target_chars,
+            source_format=args.source_format,
+            cost_per_thousand_usd=args.cost_per_thousand_usd,
+        )
+        status = production_audio_status(args.audio_run_id)
+    except AudioProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "prepared_at": state["prepared_at"],
+                **status,
+                "source_format": state["source_format"],
+                "pitch_processing": state["pitch_processing"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_audio_production_status(args: argparse.Namespace) -> None:
+    try:
+        status = production_audio_status(args.audio_run_id)
+    except AudioProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(status, ensure_ascii=False, indent=2))
+
+
+def cmd_audio_production_synthesize(args: argparse.Namespace) -> None:
+    try:
+        status = synthesize_audio_production(
+            audio_run_id=args.audio_run_id,
+            limit=args.limit,
+            max_attempts=args.max_attempts,
+            request_timeout_seconds=args.request_timeout,
+            sleep_seconds=args.sleep_seconds,
+        )
+    except (AudioProductionError, ElevenLabsError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(status, ensure_ascii=False, indent=2))
+
+
+def cmd_audio_production_assemble(args: argparse.Namespace) -> None:
+    try:
+        result = assemble_audio_release(
+            audio_run_id=args.audio_run_id,
+            include_fixed_tracks=args.include_fixed_tracks,
+            fixed_track_minutes=args.fixed_track_minutes,
+            decode_check=args.decode_check,
+        )
+    except AudioProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "audio_run_id": result["audio_run_id"],
+                "counts": result["counts"],
+                "qa": result["qa"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Quran translation v2 pipeline")
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH), help="SQLite database path")
@@ -767,6 +855,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the full ffmpeg decode pass over release MP3s",
     )
     audio_release_cmd.set_defaults(func=cmd_audio_release)
+
+    production_prepare_cmd = sub.add_parser(
+        "audio-production-prepare",
+        help="Prepare the immutable v2.4.1 Nathan v3 audiobook run",
+    )
+    production_prepare_cmd.add_argument(
+        "--audio-run-id", default=DEFAULT_PRODUCTION_AUDIO_RUN_ID
+    )
+    production_prepare_cmd.add_argument(
+        "--chunk-target-chars",
+        type=positive_int,
+        default=DEFAULT_PRODUCTION_CHUNK_TARGET_CHARS,
+    )
+    production_prepare_cmd.add_argument(
+        "--source-format", default=DEFAULT_PRODUCTION_SOURCE_FORMAT
+    )
+    production_prepare_cmd.add_argument(
+        "--cost-per-thousand-usd",
+        type=positive_float,
+        default=DEFAULT_COST_PER_THOUSAND_USD,
+    )
+    production_prepare_cmd.set_defaults(func=cmd_audio_production_prepare)
+
+    production_status_cmd = sub.add_parser(
+        "audio-production-status",
+        help="Show status for the v2.4.1 production audiobook",
+    )
+    production_status_cmd.add_argument(
+        "--audio-run-id", default=DEFAULT_PRODUCTION_AUDIO_RUN_ID
+    )
+    production_status_cmd.set_defaults(func=cmd_audio_production_status)
+
+    production_synthesize_cmd = sub.add_parser(
+        "audio-production-synthesize",
+        help="Generate and pitch-process pending v2.4.1 audiobook chunks",
+    )
+    production_synthesize_cmd.add_argument(
+        "--audio-run-id", default=DEFAULT_PRODUCTION_AUDIO_RUN_ID
+    )
+    production_synthesize_cmd.add_argument("--limit", type=positive_int)
+    production_synthesize_cmd.add_argument("--max-attempts", type=positive_int, default=2)
+    production_synthesize_cmd.add_argument(
+        "--request-timeout", type=positive_int, default=600
+    )
+    production_synthesize_cmd.add_argument("--sleep-seconds", type=float, default=0.0)
+    production_synthesize_cmd.set_defaults(func=cmd_audio_production_synthesize)
+
+    production_assemble_cmd = sub.add_parser(
+        "audio-production-assemble",
+        help="Assemble 114 surahs, 30 canonical juz, and the full audiobook",
+    )
+    production_assemble_cmd.add_argument(
+        "--audio-run-id", default=DEFAULT_PRODUCTION_AUDIO_RUN_ID
+    )
+    production_assemble_cmd.add_argument("--include-fixed-tracks", action="store_true")
+    production_assemble_cmd.add_argument(
+        "--fixed-track-minutes", type=positive_float, default=40.0
+    )
+    production_assemble_cmd.add_argument("--decode-check", action="store_true")
+    production_assemble_cmd.set_defaults(func=cmd_audio_production_assemble)
 
     return parser
 

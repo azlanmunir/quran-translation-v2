@@ -103,9 +103,13 @@ def synthesize_text(
         "text": text.strip(),
         "model_id": model_id,
     }
-    if previous_text:
+    # Eleven v3 currently rejects continuity context fields at the API boundary.
+    # Keep them for models that support the fields, while allowing callers to use
+    # one request builder across model generations.
+    supports_context = model_id != "eleven_v3"
+    if previous_text and supports_context:
         body["previous_text"] = previous_text
-    if next_text:
+    if next_text and supports_context:
         body["next_text"] = next_text
     if seed is not None:
         body["seed"] = seed

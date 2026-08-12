@@ -19,6 +19,7 @@ from quran_translate.audio_production import (
     plan_chunks,
     prepare_audio_production,
 )
+from quran_translate.elevenlabs_tts import synthesize_text
 
 
 class AudioProductionTests(unittest.TestCase):
@@ -112,6 +113,32 @@ class AudioProductionTests(unittest.TestCase):
         self.assertEqual(_provider_blocker_status("credits exhausted"), "quota_paused")
         self.assertEqual(_provider_blocker_status("401 unauthorized"), "authentication_blocked")
         self.assertEqual(_provider_blocker_status("payment failed"), "billing_blocked")
+
+    def test_eleven_v3_omits_unsupported_context_fields(self) -> None:
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"audio"
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "clip.pcm"
+            with mock.patch(
+                "quran_translate.elevenlabs_tts.urllib.request.urlopen",
+                return_value=response,
+            ) as urlopen:
+                synthesize_text(
+                    text="Current passage.",
+                    voice_id="voice-id",
+                    output_path=output,
+                    api_key="test-key",
+                    model_id="eleven_v3",
+                    output_format="pcm_44100",
+                    previous_text="Previous passage.",
+                    next_text="Following passage.",
+                )
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertNotIn("previous_text", payload)
+        self.assertNotIn("next_text", payload)
+        self.assertEqual(payload["model_id"], "eleven_v3")
 
     def test_lossless_pitch_and_mp3_processing_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

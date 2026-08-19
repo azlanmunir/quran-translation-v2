@@ -168,6 +168,43 @@ class UrduProductionTests(unittest.TestCase):
             )
             self.assertAlmostEqual(0.03, budget.spent())
 
+    def test_terminal_provider_failure_stops_and_stays_stopped(self) -> None:
+        calls = 0
+
+        def no_credits(*_args):
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("insufficient_quota: credit_balance_exhausted")
+
+        unit = ProductionUnit("s001_001_001", 1, 1, 1, 1, 1, 1)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            budget = BudgetLedger(base, 1.0)
+            kwargs = {
+                "base": base,
+                "unit": unit,
+                "stage": "draft",
+                "model": DRAFT_MODEL,
+                "system": "system",
+                "user": "user",
+                "schema": TRANSLATION_SCHEMA,
+                "validator": lambda value: validate_translation(value, [1]),
+                "budget": budget,
+            }
+            with patch.dict(
+                "quran_translate.urdu_production.PROVIDER_CALLS",
+                {"openrouter": no_credits},
+            ):
+                first = _sync_job(**kwargs)
+                second = _sync_job(**kwargs)
+            failure = json.loads(
+                (base / "units" / unit.unit_id / "draft.json").read_text()
+            )
+            self.assertEqual("failed", first["status"])
+            self.assertEqual("failed", second["status"])
+            self.assertTrue(failure["terminal_provider_failure"])
+            self.assertEqual(1, calls)
+
     def test_refrain_choice_must_be_one_of_supplied_options(self) -> None:
         groups = [
             {

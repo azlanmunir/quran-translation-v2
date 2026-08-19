@@ -46,6 +46,7 @@ from .urdu_quality import (
     validate_revision,
     validate_verification,
 )
+from .urdu_provider import is_terminal_provider_failure
 from .urdu_translation_bakeoff import (
     ALLOWED_FLAGS,
     CANDIDATES,
@@ -165,6 +166,8 @@ def _critic_model() -> ModelSpec:
     if not isinstance(result_path_value, str):
         raise UrduProductionError("Urdu critic approval lacks its result artifact")
     result_path = Path(result_path_value)
+    if not result_path.is_absolute():
+        result_path = PROJECT_ROOT / result_path
     if not result_path.is_file() or approval.get("result_sha256") != file_hash(result_path):
         raise UrduProductionError("Urdu critic approval result is missing or changed")
     result = _load_json(result_path)
@@ -449,11 +452,16 @@ def _sync_job(
     existing = _load_stage(path, input_hash=input_hash, validator=validator)
     if existing is not None:
         return {"unit_id": unit.unit_id, "status": "reused"}
-    if path.exists() and int(_load_json(path).get("attempts", 0)) >= CONTRACT_ATTEMPTS:
-        return {"unit_id": unit.unit_id, "status": "failed"}
+    if path.exists():
+        failed_stage = _load_json(path)
+        if failed_stage.get("terminal_provider_failure") or int(
+            failed_stage.get("attempts", 0)
+        ) >= CONTRACT_ATTEMPTS:
+            return {"unit_id": unit.unit_id, "status": "failed"}
 
     errors: list[str] = []
     consumed_attempts: set[int] = set()
+    terminal_provider_failure = False
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
         failed_path = unit_dir(base, unit) / f"{stage}-attempt{attempt}-FAILED.json"
         if not failed_path.exists():
@@ -463,16 +471,23 @@ def _sync_job(
             raise UrduProductionError(f"Cached failed stage input changed: {failed_path}")
         consumed_attempts.add(attempt)
         errors.extend(str(item) for item in failed.get("errors", []))
+        terminal_provider_failure = terminal_provider_failure or bool(
+            failed.get("terminal_provider_failure")
+        )
     raw_text = ""
     raw_response: dict[str, Any] | None = None
     usage: dict[str, Any] = {}
     started = time.monotonic()
+    last_attempt = max(consumed_attempts, default=0)
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
+        if terminal_provider_failure:
+            break
         if attempt in consumed_attempts:
             continue
         raw_text = ""
         raw_response = None
         usage = {}
+        last_attempt = attempt
         assignment = user + (
             "\n\nPrevious response failed the strict contract: " + errors[-1]
             if errors
@@ -524,6 +539,7 @@ def _sync_job(
                 "usage": usage,
                 "raw_text": raw_text,
                 "raw_response": raw_response,
+                "terminal_provider_failure": is_terminal_provider_failure(exc),
             }
             if usage:
                 failed_payload["cost_usd"] = usage_cost(model.model_id, usage)
@@ -531,6 +547,9 @@ def _sync_job(
                 unit_dir(base, unit) / f"{stage}-attempt{attempt}-FAILED.json",
                 failed_payload,
             )
+            if is_terminal_provider_failure(exc):
+                terminal_provider_failure = True
+                break
         finally:
             budget.release(reservation)
     atomic_json(
@@ -542,9 +561,10 @@ def _sync_job(
             "input_hash": input_hash,
             "status": "failed",
             "model": asdict(model),
-            "attempts": CONTRACT_ATTEMPTS,
+            "attempts": last_attempt,
             "latency_seconds": round(time.monotonic() - started, 3),
             "usage": usage,
+            "terminal_provider_failure": terminal_provider_failure,
             "errors": errors,
             "raw_text": raw_text,
             "raw_response": raw_response,
@@ -1137,6 +1157,7 @@ def run_refrain_resolution(
         if existing is None:
             errors: list[str] = []
             consumed_attempts: set[int] = set()
+            terminal_provider_failure = False
             for attempt in range(1, CONTRACT_ATTEMPTS + 1):
                 failed_path = (
                     base
@@ -1152,9 +1173,16 @@ def run_refrain_resolution(
                     )
                 consumed_attempts.add(attempt)
                 errors.extend(str(item) for item in failed.get("errors", []))
+                terminal_provider_failure = terminal_provider_failure or bool(
+                    failed.get("terminal_provider_failure")
+                )
             raw_text = ""
             raw_response: dict[str, Any] | None = None
             usage: dict[str, Any] = {}
+            if terminal_provider_failure:
+                raise UrduProductionError(
+                    f"Refrain bundle {bundle_number} has a terminal provider failure"
+                )
             for attempt in range(1, CONTRACT_ATTEMPTS + 1):
                 if attempt in consumed_attempts:
                     continue
@@ -1209,6 +1237,7 @@ def run_refrain_resolution(
                         "usage": usage,
                         "raw_text": raw_text,
                         "raw_response": raw_response,
+                        "terminal_provider_failure": is_terminal_provider_failure(exc),
                     }
                     if usage:
                         failed_payload["cost_usd"] = usage_cost(model.model_id, usage)
@@ -1218,6 +1247,8 @@ def run_refrain_resolution(
                         / f"bundle-{bundle_number:03d}-attempt{attempt}-FAILED.json",
                         failed_payload,
                     )
+                    if is_terminal_provider_failure(exc):
+                        break
                 finally:
                     budget.release(reservation)
             if existing is None:

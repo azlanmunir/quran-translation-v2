@@ -14,6 +14,7 @@ from .production_packets import atomic_json
 from .refrains import load_quran_xml
 from .urdu_quality import FINDING_SCHEMA, SEVERITY_RANK, validate_finding
 from .urdu_costs import PRICING_PATH, usage_cost
+from .urdu_provider import is_terminal_provider_failure
 from .urdu_translation_bakeoff import (
     AUDITORS,
     CONTRACT_ATTEMPTS,
@@ -33,6 +34,7 @@ SEMANTIC_LEDGER_MD_PATH = PROJECT_ROOT / "prompts" / "sense-ledger-v2.4.md"
 SEMANTIC_LEDGER_JSON_PATH = DATA_DIR / "evidence" / "sense-ledger-v2.4.json"
 URDU_LEDGER_PATH = PROJECT_ROOT / "prompts" / "urdu-production-ledger-v1.json"
 APPROVAL_PATH = DATA_DIR / "evidence" / "urdu-critic-approved-v2.json"
+APPROVED_RESULT_PATH = DATA_DIR / "evidence" / "urdu-critic-approved-result-v2.json"
 DEFAULT_ROOT = OUTPUT_DIR / "urdu" / "critic-benchmarks" / "urdu-critic-regression-v2"
 # PROVIDER_CALLS uses the frozen bakeoff transport, whose registered ceiling is
 # 24k. Keep the benchmark manifest honest about the request actually sent.
@@ -308,11 +310,14 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
             raise UrduCriticBenchmarkError(f"Cached benchmark input changed: {path}")
         if existing.get("status") == "complete":
             return existing
+        if existing.get("terminal_provider_failure"):
+            return existing
         if int(existing.get("attempts", 0)) >= CONTRACT_ATTEMPTS:
             return existing
 
     errors: list[str] = []
     consumed_attempts: set[int] = set()
+    terminal_provider_failure = False
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
         failed_path = root / f"{model.candidate_id}-attempt{attempt}-FAILED.json"
         if not failed_path.exists():
@@ -324,16 +329,23 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
             )
         consumed_attempts.add(attempt)
         errors.extend(str(item) for item in failed.get("errors", []))
+        terminal_provider_failure = terminal_provider_failure or bool(
+            failed.get("terminal_provider_failure")
+        )
     usage: dict[str, Any] = {}
     raw_response: dict[str, Any] | None = None
     raw_text = ""
     started = time.monotonic()
+    last_attempt = max(consumed_attempts, default=0)
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
+        if terminal_provider_failure:
+            break
         if attempt in consumed_attempts:
             continue
         raw_text = ""
         raw_response = None
         usage = {}
+        last_attempt = attempt
         try:
             retry = (
                 "\n\nPrevious output failed the registered contract: " + errors[-1]
@@ -366,6 +378,7 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
                 "errors_before_success": errors,
                 "raw_text": raw_text,
                 "raw_response": raw_response,
+                "terminal_provider_failure": is_terminal_provider_failure(exc),
             }
             atomic_json(path, document)
             return document
@@ -387,14 +400,18 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
                 root / f"{model.candidate_id}-attempt{attempt}-FAILED.json",
                 failed_payload,
             )
+            if is_terminal_provider_failure(exc):
+                terminal_provider_failure = True
+                break
     document = {
         "version": "urdu-critic-benchmark-result-v2",
         "input_hash": input_hash,
         "status": "failed",
         "model": asdict(model),
-        "attempts": CONTRACT_ATTEMPTS,
+        "attempts": last_attempt,
         "latency_seconds": round(time.monotonic() - started, 3),
         "usage": usage,
+        "terminal_provider_failure": terminal_provider_failure,
         "errors": errors,
         "raw_text": raw_text,
         "raw_response": raw_response,
@@ -506,13 +523,30 @@ def approve(candidate_id: str, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
         raise UrduCriticBenchmarkError(
             f"Pricing snapshot lacks critic candidate {model.model_id}"
         )
+    approved_result = {
+        "version": "urdu-critic-approved-result-v2",
+        "input_hash": result["input_hash"],
+        "status": result["status"],
+        "model": result["model"],
+        "usage": result.get("usage", {}),
+        "cost_usd": result.get("cost_usd"),
+        "source_cost_usd": result.get("source_cost_usd"),
+        "result": result["result"],
+        "score": result["score"],
+        "provenance": result.get("provenance"),
+    }
+    if APPROVED_RESULT_PATH.exists() and json.loads(
+        APPROVED_RESULT_PATH.read_text(encoding="utf-8")
+    ) != approved_result:
+        raise UrduCriticBenchmarkError("A different critic result is already approved")
+    atomic_json(APPROVED_RESULT_PATH, approved_result)
     approval = {
         "version": "urdu-critic-approval-v2",
         "model": asdict(model),
         "benchmark_sha256": file_hash(BENCHMARK_PATH),
         "system_sha256": stable_hash(benchmark_system()),
-        "result_path": str(path.resolve()),
-        "result_sha256": file_hash(path),
+        "result_path": str(APPROVED_RESULT_PATH.relative_to(PROJECT_ROOT)),
+        "result_sha256": file_hash(APPROVED_RESULT_PATH),
         "score": result["score"],
     }
     if APPROVAL_PATH.exists() and json.loads(

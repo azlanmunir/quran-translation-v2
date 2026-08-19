@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from dataclasses import asdict
 from pathlib import Path
+from unittest.mock import patch
 
 from quran_translate.production_packets import atomic_json
 from quran_translate.urdu_critic_benchmark import (
@@ -15,6 +16,7 @@ from quran_translate.urdu_critic_benchmark import (
     load_benchmark,
     prepare,
     rescore_existing,
+    run_model,
     score_response,
     validate_response,
 )
@@ -143,6 +145,28 @@ class UrduCriticBenchmarkTests(unittest.TestCase):
             self.assertEqual(0.0, result["cost_usd"])
             self.assertEqual(0.01, result["source_cost_usd"])
             self.assertEqual("deterministic_rescore", result["provenance"]["kind"])
+
+    def test_terminal_provider_failure_is_not_retried(self) -> None:
+        calls = 0
+
+        def no_credits(*_args):
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("credit_balance_exhausted: no credits remaining")
+
+        model = AUDITORS[1]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with patch.dict(
+                "quran_translate.urdu_critic_benchmark.PROVIDER_CALLS",
+                {model.provider: no_credits},
+            ):
+                first = run_model(model, root)
+                second = run_model(model, root)
+        self.assertEqual("failed", first["status"])
+        self.assertTrue(first["terminal_provider_failure"])
+        self.assertEqual(first, second)
+        self.assertEqual(1, calls)
 
 
 if __name__ == "__main__":

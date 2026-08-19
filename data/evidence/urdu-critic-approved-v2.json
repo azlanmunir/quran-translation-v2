@@ -1,0 +1,127 @@
+{
+  "benchmark_sha256": "ad377d7c771837278d2bdba68c42338a04b2111813b683c0244b3601fb3de115",
+  "model": {
+    "candidate_id": "auditor-gemini-37",
+    "model_id": "gemini-3.7-flash",
+    "private_label": "Gemini 3.7 Flash auditor",
+    "provider": "google",
+    "reasoning": "high"
+  },
+  "result_path": "data/evidence/urdu-critic-approved-result-v2.json",
+  "result_sha256": "7272b5c7a1920b2921e2662ab8ecd27cbbe47782239d300c49489fd4e3f9682c",
+  "score": {
+    "clean_cases": 3,
+    "clean_false_positive_rate": 0.0,
+    "defect_cases": 8,
+    "defect_recall": 1.0,
+    "detected": [
+      "and-to-or",
+      "rafath-softened",
+      "mubasharah-broadened",
+      "fajr-generalized",
+      "kalalah-collapsed",
+      "parenthetical-tafsir",
+      "zinah-clinicalized",
+      "duha-softened"
+    ],
+    "false_positives": [],
+    "missed": [],
+    "passed": true,
+    "per_case": [
+      {
+        "case_id": "and-to-or",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "rafath-softened",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "mubasharah-broadened",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "fajr-generalized",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "kalalah-collapsed",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "collapsed_ambiguity"
+        ]
+      },
+      {
+        "case_id": "parenthetical-tafsir",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "addition"
+        ]
+      },
+      {
+        "case_id": "zinah-clinicalized",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "duha-softened",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "sense_error"
+        ]
+      },
+      {
+        "case_id": "clean-qisas-taqwa",
+        "expected": "clean",
+        "passed": true,
+        "reported_types": []
+      },
+      {
+        "case_id": "clean-zina",
+        "expected": "clean",
+        "passed": true,
+        "reported_types": []
+      },
+      {
+        "case_id": "clean-duha",
+        "expected": "clean",
+        "passed": true,
+        "reported_types": []
+      }
+    ],
+    "required_cases_passed": [
+      "and-to-or",
+      "duha-softened",
+      "fajr-generalized",
+      "kalalah-collapsed",
+      "mubasharah-broadened",
+      "rafath-softened",
+      "zinah-clinicalized"
+    ],
+    "version": "urdu-critic-regression-score-v2"
+  },
+  "system_sha256": "976b34b56d56497fd9c31f36c1b3ec8c1f7e16340a34afc64b12aabace39f520",
+  "version": "urdu-critic-approval-v2"
+}

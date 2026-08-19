@@ -1,0 +1,281 @@
+{
+  "cost_usd": 0.0,
+  "input_hash": "34c28462a9b5a8646bb0d371be411427681984b6006d1b20f8bc419bb3e296f1",
+  "model": {
+    "candidate_id": "auditor-gemini-37",
+    "model_id": "gemini-3.7-flash",
+    "private_label": "Gemini 3.7 Flash auditor",
+    "provider": "google",
+    "reasoning": "high"
+  },
+  "provenance": {
+    "kind": "deterministic_rescore",
+    "source_path": "/Users/azlanmunir/Library/Mobile Documents/com~apple~CloudDocs/Documents/New project/quran-translation-v2/output/urdu/critic-benchmarks/urdu-critic-regression-v1/auditor-gemini-37.json",
+    "source_sha256": "2f567e36b01f057fa33d0d8403daf20bc3751f44ea85ebb92f47b1e7a499a0f4"
+  },
+  "result": {
+    "cases": [
+      {
+        "case_id": "and-to-or",
+        "findings": [
+          {
+            "arabic_ground": "المَشرِقِ وَالمَغرِبِ",
+            "explanation": "The Arabic connects east and west with the conjunction 'waw' (and). Rendering it as 'یا' (or) changes the conjunction into a disjunction, violating UPL-CONJUNCTION.",
+            "severity": "significant",
+            "suggestion": "مشرق اور مغرب",
+            "type": "ledger_error",
+            "where": "مشرق یا مغرب"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "rafath-softened",
+        "findings": [
+          {
+            "arabic_ground": "الرَّفَثُ",
+            "explanation": "The legal context of 2:187 concerns sexual relations during fasting nights. Using 'میل جول' softens the term to ordinary social contact and violates UPL-RAFATH.",
+            "severity": "significant",
+            "suggestion": "صحبت",
+            "type": "ledger_error",
+            "where": "میل جول"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "mubasharah-broadened",
+        "findings": [
+          {
+            "arabic_ground": "وَلا تُبـٰشِروهُنَّ",
+            "explanation": "The prohibition during mosque retreat specifically bars marital intimacy/cohabitation (mubasharah), not merely meeting or seeing one's spouse, violating UPL-MUBASHARAH.",
+            "severity": "significant",
+            "suggestion": "ان سے مباشرت نہ کرو",
+            "type": "ledger_error",
+            "where": "ان سے نہ ملو"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "fajr-generalized",
+        "findings": [
+          {
+            "arabic_ground": "مِنَ الفَجرِ",
+            "explanation": "Replacing 'فجر' with generic 'صبح' blurs the specific legal dawn boundary defined in 2:187 and violates UPL-FAJR.",
+            "severity": "significant",
+            "suggestion": "فجر",
+            "type": "ledger_error",
+            "where": "صبح"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "kalalah-collapsed",
+        "findings": [
+          {
+            "arabic_ground": "كَلـٰلَةً",
+            "explanation": "Replacing the technical legal term 'kalalah' with a particular exegetical gloss collapses a live juristic ambiguity into body text, violating UPL-KALALAH.",
+            "severity": "significant",
+            "suggestion": "کلالہ",
+            "type": "collapsed_ambiguity",
+            "where": "جس کے نہ والدین ہوں نہ اولاد"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "parenthetical-tafsir",
+        "findings": [
+          {
+            "arabic_ground": "وَاستَغفِرى",
+            "explanation": "The draft inserts bracketed interpretive commentary/vocative explanation directly into the body text, violating translation policy against parenthetical tafsir.",
+            "severity": "significant",
+            "suggestion": "اور اپنے گناہ کی معافی مانگ",
+            "type": "addition",
+            "where": "(اے عورت)"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "zinah-clinicalized",
+        "findings": [
+          {
+            "arabic_ground": "الزّانِيَةُ وَالزّانى",
+            "explanation": "Using clinical paraphrase 'ناجائز جنسی تعلق' instead of standard Urdu legal terms 'زنا کرنے والی / زنا کرنے والا' violates UPL-ZINA and weakens spoken legal force.",
+            "severity": "significant",
+            "suggestion": "زنا کرنے والی عورت اور زنا کرنے والا مرد",
+            "type": "ledger_error",
+            "where": "ناجائز جنسی تعلق کرنے والی عورت اور ناجائز جنسی تعلق کرنے والا مرد"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "duha-softened",
+        "findings": [
+          {
+            "arabic_ground": "ضالًّا",
+            "explanation": "Softening 'ضالًّا' to 'راہ سے بے خبر' deadens the lexical force and directness of the Arabic assertion.",
+            "severity": "significant",
+            "suggestion": "بھٹکا ہوا",
+            "type": "sense_error",
+            "where": "راہ سے بے خبر"
+          }
+        ],
+        "verdict": "revise"
+      },
+      {
+        "case_id": "clean-qisas-taqwa",
+        "findings": [],
+        "verdict": "pass"
+      },
+      {
+        "case_id": "clean-zina",
+        "findings": [],
+        "verdict": "pass"
+      },
+      {
+        "case_id": "clean-duha",
+        "findings": [],
+        "verdict": "pass"
+      }
+    ]
+  },
+  "score": {
+    "clean_cases": 3,
+    "clean_false_positive_rate": 0.0,
+    "defect_cases": 8,
+    "defect_recall": 1.0,
+    "detected": [
+      "and-to-or",
+      "rafath-softened",
+      "mubasharah-broadened",
+      "fajr-generalized",
+      "kalalah-collapsed",
+      "parenthetical-tafsir",
+      "zinah-clinicalized",
+      "duha-softened"
+    ],
+    "false_positives": [],
+    "missed": [],
+    "passed": true,
+    "per_case": [
+      {
+        "case_id": "and-to-or",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "rafath-softened",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "mubasharah-broadened",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "fajr-generalized",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "kalalah-collapsed",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "collapsed_ambiguity"
+        ]
+      },
+      {
+        "case_id": "parenthetical-tafsir",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "addition"
+        ]
+      },
+      {
+        "case_id": "zinah-clinicalized",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "ledger_error"
+        ]
+      },
+      {
+        "case_id": "duha-softened",
+        "expected": "defect",
+        "passed": true,
+        "reported_types": [
+          "sense_error"
+        ]
+      },
+      {
+        "case_id": "clean-qisas-taqwa",
+        "expected": "clean",
+        "passed": true,
+        "reported_types": []
+      },
+      {
+        "case_id": "clean-zina",
+        "expected": "clean",
+        "passed": true,
+        "reported_types": []
+      },
+      {
+        "case_id": "clean-duha",
+        "expected": "clean",
+        "passed": true,
+        "reported_types": []
+      }
+    ],
+    "required_cases_passed": [
+      "and-to-or",
+      "duha-softened",
+      "fajr-generalized",
+      "kalalah-collapsed",
+      "mubasharah-broadened",
+      "rafath-softened",
+      "zinah-clinicalized"
+    ],
+    "version": "urdu-critic-regression-score-v2"
+  },
+  "source_cost_usd": 0.0241965,
+  "status": "complete",
+  "usage": {
+    "cache_tokens_details": null,
+    "cached_content_token_count": null,
+    "candidates_token_count": 1279,
+    "candidates_tokens_details": null,
+    "prompt_token_count": 13082,
+    "prompt_tokens_details": [
+      {
+        "modality": "TEXT",
+        "token_count": 13082
+      }
+    ],
+    "thoughts_token_count": 2557,
+    "tool_use_prompt_token_count": null,
+    "tool_use_prompt_tokens_details": null,
+    "total_token_count": 16918,
+    "traffic_type": null
+  },
+  "version": "urdu-critic-approved-result-v2"
+}

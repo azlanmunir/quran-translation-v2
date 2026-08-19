@@ -11,6 +11,7 @@ from quran_translate.urdu_draft_recovery import (
     RecoveryProviderBlocked,
     _recover_one,
     freeze_targets,
+    retry_exhausted_rate_limit,
 )
 from quran_translate.urdu_production import BudgetLedger
 from quran_translate.urdu_translation_bakeoff import file_hash
@@ -142,6 +143,84 @@ class UrduDraftRecoveryTests(unittest.TestCase):
             reused = freeze_targets(base, [unit])
 
             self.assertEqual(marker, reused)
+
+    def test_controlled_rate_limit_retry_is_single_and_preserves_evidence(self) -> None:
+        calls = 0
+
+        def provider(*_args):
+            nonlocal calls
+            calls += 1
+            result = {
+                "ayahs": [{"ayah": 1, "urdu": "اللہ ایک ہے۔", "review_flags": []}]
+            }
+            return json.dumps(result, ensure_ascii=False), {"cost": 0.01}, {"ok": True}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            unit, _ = self._fixture(base)
+            verses = {(1, 1): "بِسْمِ اللَّهِ"}
+            bismillah = {1: None}
+            from quran_translate.urdu_draft_recovery import _draft_input_hash
+
+            _, _, input_hash = _draft_input_hash(base, unit, verses, bismillah)
+            draft_path = base / "units" / unit.unit_id / "draft.json"
+            document = json.loads(draft_path.read_text(encoding="utf-8"))
+            document["input_hash"] = input_hash
+            atomic_json(draft_path, document)
+            marker = freeze_targets(base, [unit])
+            archive = draft_path.with_name("draft-pre-recovery-FAILED.json")
+            archive.write_bytes(draft_path.read_bytes())
+            rate_error = "Provider HTTP 429: rate_limit_exceeded"
+            for attempt in (1, 2):
+                atomic_json(
+                    draft_path.with_name(
+                        f"draft-recovery-attempt{attempt}-FAILED.json"
+                    ),
+                    {
+                        "input_hash": input_hash,
+                        "attempt": attempt,
+                        "errors": [rate_error],
+                        "usage": {},
+                        "raw_text": "",
+                    },
+                )
+            atomic_json(
+                draft_path.with_name("draft-recovery-FAILED.json"),
+                {
+                    "input_hash": input_hash,
+                    "status": "failed",
+                    "errors": [rate_error, rate_error],
+                },
+            )
+            preserved = {
+                path.name: path.read_bytes()
+                for path in draft_path.parent.glob("*FAILED.json")
+            }
+            with patch.dict(
+                "quran_translate.urdu_draft_recovery.PROVIDER_CALLS",
+                {"openrouter": provider},
+            ), patch(
+                "quran_translate.urdu_draft_recovery.RATE_LIMIT_COOLDOWN_SECONDS",
+                0,
+            ):
+                result = retry_exhausted_rate_limit(
+                    base,
+                    [unit],
+                    verses,
+                    bismillah,
+                    marker,
+                    budget=BudgetLedger(base, 1),
+                    unit_id=unit.unit_id,
+                )
+
+            completed = json.loads(draft_path.read_text(encoding="utf-8"))
+            self.assertTrue(result["complete"])
+            self.assertEqual(1, result["recovered"])
+            self.assertEqual(3, completed["attempts"])
+            self.assertEqual(1, calls)
+            self.assertTrue((base / "DRAFT_RECOVERY_COMPLETE.json").exists())
+            for name, content in preserved.items():
+                self.assertEqual(content, (draft_path.parent / name).read_bytes())
 
 
 if __name__ == "__main__":

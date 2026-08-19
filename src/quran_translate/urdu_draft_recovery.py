@@ -45,6 +45,8 @@ TARGETS_NAME = "DRAFT_RECOVERY_TARGETS.json"
 COMPLETE_NAME = "DRAFT_RECOVERY_COMPLETE.json"
 BLOCKED_NAME = "DRAFT_RECOVERY_BLOCKED.json"
 KEY_LIMIT_MARKER = "key limit exceeded"
+RATE_LIMIT_MARKERS = ("provider http 429", "rate_limit_exceeded")
+RATE_LIMIT_COOLDOWN_SECONDS = 60
 
 
 class RecoveryProviderBlocked(UrduProductionError):
@@ -347,6 +349,23 @@ def recovery_status(base: Path, marker: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _write_complete_marker(base: Path, marker: dict[str, Any]) -> dict[str, Any]:
+    status = recovery_status(base, marker)
+    if status["pending"] or status["failed"]:
+        raise UrduProductionError(f"Draft recovery is incomplete: {status}")
+    complete = {
+        "version": "urdu-draft-recovery-complete-v1",
+        "run_id": base.name,
+        "target_hash": marker["target_hash"],
+        "recovered": marker["target_count"],
+    }
+    path = base / COMPLETE_NAME
+    if path.exists() and _load_json(path) != complete:
+        raise UrduProductionError("Urdu draft recovery completion marker changed")
+    atomic_json(path, complete)
+    return recovery_status(base, marker)
+
+
 def run_recovery(
     base: Path,
     units: list[ProductionUnit],
@@ -387,20 +406,154 @@ def run_recovery(
             },
         )
         raise
+    return _write_complete_marker(base, marker)
+
+
+def retry_exhausted_rate_limit(
+    base: Path,
+    units: list[ProductionUnit],
+    verses: dict[tuple[int, int], str],
+    bismillah: dict[int, str | None],
+    marker: dict[str, Any],
+    *,
+    budget: BudgetLedger,
+    unit_id: str | None = None,
+) -> dict[str, Any]:
     status = recovery_status(base, marker)
-    if status["pending"] or status["failed"]:
-        raise UrduProductionError(f"Draft recovery is incomplete: {status}")
-    complete = {
-        "version": "urdu-draft-recovery-complete-v1",
-        "run_id": base.name,
-        "target_hash": marker["target_hash"],
-        "recovered": marker["target_count"],
-    }
-    path = base / COMPLETE_NAME
-    if path.exists() and _load_json(path) != complete:
-        raise UrduProductionError("Urdu draft recovery completion marker changed")
-    atomic_json(path, complete)
-    return recovery_status(base, marker)
+    if status["pending"] != 0 or status["failed"] != 1:
+        raise UrduProductionError(
+            "Controlled rate-limit retry requires exactly one failed recovery unit "
+            f"and no pending units: {status}"
+        )
+    unit_by_id = {unit.unit_id: unit for unit in units}
+    target_by_id = {str(target["unit_id"]): target for target in marker["targets"]}
+    failed_ids = [
+        candidate
+        for candidate in target_by_id
+        if _load_json(base / "units" / candidate / "draft.json").get("status")
+        != "complete"
+    ]
+    failed_id = failed_ids[0]
+    if unit_id is not None and unit_id != failed_id:
+        raise UrduProductionError(
+            f"Requested retry unit {unit_id} does not match failed unit {failed_id}"
+        )
+    unit = unit_by_id[failed_id]
+    target = target_by_id[failed_id]
+    unit_root = unit_dir(base, unit)
+    attempt_paths = [
+        unit_root / f"draft-recovery-attempt{attempt}-FAILED.json"
+        for attempt in range(1, CONTRACT_ATTEMPTS + 1)
+    ]
+    summary_path = unit_root / "draft-recovery-FAILED.json"
+    retry_path = unit_root / "draft-recovery-attempt3-FAILED.json"
+    if retry_path.exists():
+        raise UrduProductionError(
+            f"Controlled rate-limit retry was already consumed: {retry_path}"
+        )
+    if not summary_path.exists() or any(not path.exists() for path in attempt_paths):
+        raise UrduProductionError(
+            f"Controlled retry evidence is incomplete for {failed_id}"
+        )
+
+    prior_errors: list[str] = []
+    for path in attempt_paths:
+        document = _load_json(path)
+        errors = _errors(document)
+        combined = " ".join(errors).lower()
+        if (
+            document.get("usage")
+            or document.get("raw_text")
+            or not errors
+            or not any(marker_text in combined for marker_text in RATE_LIMIT_MARKERS)
+        ):
+            raise UrduProductionError(
+                f"Controlled retry refuses non-rate-limit evidence: {path}"
+            )
+        prior_errors.extend(errors)
+    elapsed = time.time() - max(path.stat().st_mtime for path in attempt_paths)
+    if elapsed < RATE_LIMIT_COOLDOWN_SECONDS:
+        raise UrduProductionError(
+            "Controlled rate-limit retry cooldown has not elapsed: "
+            f"{elapsed:.1f}s < {RATE_LIMIT_COOLDOWN_SECONDS}s"
+        )
+
+    draft_path = artifact_path(base, unit, "draft")
+    system, user, input_hash = _draft_input_hash(base, unit, verses, bismillah)
+    current = _load_json(draft_path)
+    if current.get("input_hash") != input_hash or current.get("status") == "complete":
+        raise UrduProductionError(
+            f"Controlled retry found an unexpected draft state: {draft_path}"
+        )
+    archive = _archive_failed_summary(
+        draft_path, str(target["failed_summary_sha256"])
+    )
+    reservation = estimate_request_ceiling(
+        DRAFT_MODEL.model_id, system, user, MAX_OUTPUT_TOKENS
+    )
+    budget.reserve(reservation)
+    started = time.monotonic()
+    raw_text = ""
+    raw_response: dict[str, Any] | None = None
+    usage: dict[str, Any] = {}
+    try:
+        raw_text, usage, raw_response = PROVIDER_CALLS[DRAFT_MODEL.provider](
+            DRAFT_MODEL, system, user, TRANSLATION_SCHEMA
+        )
+        result = validate_translation(extract_json(raw_text), unit.expected_ayahs)
+        if result is None:
+            raise UrduProductionError("response failed strict draft contract")
+        atomic_json(
+            draft_path,
+            {
+                "version": "urdu-production-stage-v1",
+                "stage": "draft",
+                "unit_id": unit.unit_id,
+                "input_hash": input_hash,
+                "status": "complete",
+                "model": asdict(DRAFT_MODEL),
+                "attempts": 3,
+                "recovery": {
+                    "version": "urdu-draft-rate-limit-retry-v1",
+                    "failed_summary_archive": archive.name,
+                    "failed_summary_sha256": target["failed_summary_sha256"],
+                    "preserved_attempts": [path.name for path in attempt_paths],
+                },
+                "latency_seconds": round(time.monotonic() - started, 3),
+                "usage": usage,
+                "cost_usd": usage_cost(DRAFT_MODEL.model_id, usage),
+                "result": result,
+                "errors_before_success": prior_errors,
+                "raw_text": raw_text,
+                "raw_response": raw_response,
+            },
+        )
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"[:3000]
+        terminal = is_terminal_provider_failure(exc)
+        payload: dict[str, Any] = {
+            "version": "urdu-draft-rate-limit-retry-attempt-v1",
+            "stage": "draft_recovery",
+            "unit_id": unit.unit_id,
+            "input_hash": input_hash,
+            "attempt": 3,
+            "errors": [error],
+            "usage": usage,
+            "raw_text": raw_text,
+            "raw_response": raw_response,
+            "terminal_provider_failure": terminal,
+        }
+        if usage:
+            payload["cost_usd"] = usage_cost(DRAFT_MODEL.model_id, usage)
+        atomic_json(retry_path, payload)
+        if terminal:
+            raise RecoveryProviderBlocked(error) from exc
+        raise UrduProductionError(
+            f"Controlled rate-limit retry failed once for {failed_id}: {error}"
+        ) from exc
+    finally:
+        budget.release(reservation)
+    return _write_complete_marker(base, marker)
 
 
 def run_canary(
@@ -432,11 +585,15 @@ def run_canary(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Recover blocked Urdu draft units")
-    parser.add_argument("command", choices=["prepare", "canary", "run", "status"])
+    parser.add_argument(
+        "command",
+        choices=["prepare", "canary", "run", "retry-rate-limit", "status"],
+    )
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--hard-cost-ceiling-usd", type=float, default=100.0)
     parser.add_argument("--workers", type=int, default=3)
+    parser.add_argument("--unit-id")
     return parser.parse_args()
 
 
@@ -450,7 +607,7 @@ def main() -> None:
     with connect(args.db) as conn:
         base, units, verses, bismillah = prepare_production(conn, config)
     marker = freeze_targets(base, units)
-    if args.command in {"canary", "run"}:
+    if args.command in {"canary", "retry-rate-limit", "run"}:
         load_environment()
         budget = BudgetLedger(base, args.hard_cost_ceiling_usd)
         if args.command == "canary":
@@ -461,6 +618,16 @@ def main() -> None:
                 bismillah,
                 marker,
                 budget=budget,
+            )
+        elif args.command == "retry-rate-limit":
+            result = retry_exhausted_rate_limit(
+                base,
+                units,
+                verses,
+                bismillah,
+                marker,
+                budget=budget,
+                unit_id=args.unit_id,
             )
         else:
             result = run_recovery(

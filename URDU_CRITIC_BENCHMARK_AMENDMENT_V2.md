@@ -14,6 +14,7 @@ conjunction, *rafath*, *mubasharah*, *fajr*, *kalalah*, and *zina*.
 
 The v1 manifest, response, score, and USD 0.0241965 cost remain preserved. Gemini's
 identical response may be deterministically revalidated and rescored under v2 with
-its provenance recorded and no second provider call. Terra is first called only
+its provenance recorded by the harness's `rescore` command and no second provider
+call. Terra is first called only
 after v2 is frozen. Both candidates are therefore compared on the same v2 scoring
 rule, while the outcome-informed amendment remains visible.

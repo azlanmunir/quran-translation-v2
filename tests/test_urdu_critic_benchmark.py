@@ -3,16 +3,22 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 
+from quran_translate.production_packets import atomic_json
 from quran_translate.urdu_critic_benchmark import (
+    _input_hash,
+    benchmark_schema,
     benchmark_system,
     build_assignment,
     load_benchmark,
     prepare,
+    rescore_existing,
     score_response,
     validate_response,
 )
+from quran_translate.urdu_translation_bakeoff import AUDITORS
 
 
 class UrduCriticBenchmarkTests(unittest.TestCase):
@@ -103,6 +109,40 @@ class UrduCriticBenchmarkTests(unittest.TestCase):
                 source_by_case=self.sources,
             )
         )
+
+    def test_rescore_reuses_identical_provider_assignment_without_cost(self) -> None:
+        model = AUDITORS[0]
+        user, _sources = build_assignment(self.benchmark)
+        schema = benchmark_schema(
+            [str(case["case_id"]) for case in self.benchmark["cases"]]
+        )
+        response = self.perfect_response()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_path = root / "pilot.json"
+            atomic_json(
+                source_path,
+                {
+                    "status": "complete",
+                    "model": asdict(model),
+                    "input_hash": _input_hash(
+                        model, benchmark_system(), user, schema
+                    ),
+                    "attempts": 1,
+                    "latency_seconds": 1.0,
+                    "usage": {"prompt_token_count": 1},
+                    "cost_usd": 0.01,
+                    "result": response,
+                    "raw_text": "{}",
+                    "raw_response": {},
+                },
+            )
+            output_root = root / "v2"
+            result = rescore_existing(model, source_path, output_root)
+            self.assertTrue(result["score"]["passed"])
+            self.assertEqual(0.0, result["cost_usd"])
+            self.assertEqual(0.01, result["source_cost_usd"])
+            self.assertEqual("deterministic_rescore", result["provenance"]["kind"])
 
 
 if __name__ == "__main__":

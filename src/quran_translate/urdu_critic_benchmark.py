@@ -403,6 +403,60 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
     return document
 
 
+def rescore_existing(
+    model: ModelSpec,
+    source_path: Path,
+    root: Path = DEFAULT_ROOT,
+) -> dict[str, Any]:
+    prepare(root)
+    if not source_path.is_file():
+        raise UrduCriticBenchmarkError(f"Source result does not exist: {source_path}")
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    if source.get("status") != "complete" or source.get("model") != asdict(model):
+        raise UrduCriticBenchmarkError("Source result is incomplete or from another model")
+    benchmark = load_benchmark()
+    system = benchmark_system()
+    user, sources = build_assignment(benchmark)
+    schema = benchmark_schema([str(case["case_id"]) for case in benchmark["cases"]])
+    input_hash = _input_hash(model, system, user, schema)
+    if source.get("input_hash") != input_hash:
+        raise UrduCriticBenchmarkError(
+            "Source result was generated from a different provider assignment"
+        )
+    validated = validate_response(
+        source.get("result"),
+        benchmark=benchmark,
+        source_by_case=sources,
+    )
+    if validated is None:
+        raise UrduCriticBenchmarkError("Source result fails the current strict contract")
+    document = {
+        "version": "urdu-critic-benchmark-result-v2",
+        "input_hash": input_hash,
+        "status": "complete",
+        "model": asdict(model),
+        "attempts": source.get("attempts"),
+        "latency_seconds": source.get("latency_seconds"),
+        "usage": source.get("usage", {}),
+        "cost_usd": 0.0,
+        "source_cost_usd": source.get("cost_usd"),
+        "result": validated,
+        "score": score_response(benchmark, validated),
+        "raw_text": source.get("raw_text"),
+        "raw_response": source.get("raw_response"),
+        "provenance": {
+            "kind": "deterministic_rescore",
+            "source_path": str(source_path.resolve()),
+            "source_sha256": file_hash(source_path),
+        },
+    }
+    path = _result_path(root, model)
+    if path.exists() and json.loads(path.read_text(encoding="utf-8")) != document:
+        raise UrduCriticBenchmarkError(f"Existing rescored result changed: {path}")
+    atomic_json(path, document)
+    return document
+
+
 def status(root: Path = DEFAULT_ROOT) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for model in AUDITORS:
@@ -471,9 +525,12 @@ def approve(candidate_id: str, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Benchmark the Urdu production critic")
-    parser.add_argument("command", choices=["prepare", "run", "status", "approve"])
+    parser.add_argument(
+        "command", choices=["prepare", "run", "rescore", "status", "approve"]
+    )
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--candidate", choices=[item.candidate_id for item in AUDITORS])
+    parser.add_argument("--source", type=Path)
     return parser.parse_args()
 
 
@@ -489,6 +546,12 @@ def main() -> None:
         load_environment()
         model = next(item for item in AUDITORS if item.candidate_id == args.candidate)
         run_model(model, args.root)
+        result = status(args.root)
+    elif args.command == "rescore":
+        if not args.candidate or not args.source:
+            raise SystemExit("--candidate and --source are required for rescore")
+        model = next(item for item in AUDITORS if item.candidate_id == args.candidate)
+        rescore_existing(model, args.source, args.root)
         result = status(args.root)
     else:
         if not args.candidate:

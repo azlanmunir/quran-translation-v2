@@ -61,6 +61,40 @@ class UrduQualityTests(unittest.TestCase):
             )
         )
 
+    def test_critic_accepts_equivalent_uthmani_ground_spelling(self) -> None:
+        document = {
+            "ayahs": [
+                {
+                    "ayah": 1,
+                    "findings": [
+                        {
+                            **self.finding,
+                            "arabic_ground": "ٱلْءَاخِرَةِ ... أَزْوَاجِكُمْ",
+                        }
+                    ],
+                    "verdict": "revise",
+                }
+            ]
+        }
+        clean = validate_critic(
+            document,
+            expected=[1],
+            arabic_by_ayah={1: "فِى الاخِرَةِ مِن أَزوٰجِكُم"},
+            urdu_by_ayah=self.urdu,
+        )
+        self.assertIsNotNone(clean)
+
+        unrelated = json.loads(json.dumps(document))
+        unrelated["ayahs"][0]["findings"][0]["arabic_ground"] = "لَيْسَ هُنَا"
+        self.assertIsNone(
+            validate_critic(
+                unrelated,
+                expected=[1],
+                arabic_by_ayah={1: "فِى الاخِرَةِ مِن أَزوٰجِكُم"},
+                urdu_by_ayah=self.urdu,
+            )
+        )
+
     def test_revision_and_verification_contracts_are_strict(self) -> None:
         revision = {
             "ayahs": [

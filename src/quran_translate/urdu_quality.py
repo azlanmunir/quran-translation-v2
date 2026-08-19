@@ -151,10 +151,30 @@ class QualityIssue:
 
 
 def _normalize(value: str) -> str:
-    normalized = unicodedata.normalize("NFC", value)
+    normalized = unicodedata.normalize("NFD", value)
     normalized = normalized.translate(
-        str.maketrans({"ی": "ي", "ے": "ي", "ک": "ك", "ـ": ""})
+        str.maketrans(
+            {
+                "ی": "ي",
+                "ے": "ي",
+                "ک": "ك",
+                "ـ": "",
+                "ٱ": "ا",
+                "أ": "ا",
+                "إ": "ا",
+                "آ": "ا",
+                "ى": "ي",
+                "ٰ": "ا",
+            }
+        )
     )
+    normalized = "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Mn"
+        and not "\u06d6" <= character <= "\u06ed"
+    )
+    normalized = normalized.replace("ءا", "ا")
     return " ".join(normalized.split())
 
 
@@ -167,9 +187,20 @@ def _strip_wrapping_quotes(value: str) -> str:
 
 
 def _valid_ground(ground: str, source: str) -> bool:
-    return bool(ground.strip()) and _normalize(_strip_wrapping_quotes(ground)) in _normalize(
-        source
-    )
+    normalized_ground = _normalize(_strip_wrapping_quotes(ground))
+    normalized_source = _normalize(source)
+    parts = [
+        part.strip()
+        for part in normalized_ground.replace("…", "...").split("...")
+        if part.strip()
+    ]
+    position = 0
+    for part in parts:
+        found = normalized_source.find(part, position)
+        if found < 0:
+            return False
+        position = found + len(part)
+    return bool(parts)
 
 
 def validate_finding(

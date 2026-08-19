@@ -29,6 +29,8 @@ The full run must refuse to start unless all of these are true:
   benchmark includes real defects exposed by the blind bakeoffs and clean controls,
   and runs under the same policy and ledgers used in production. Approval is tied
   to the exact result artifact and current benchmark instructions.
+- Benchmark v2 includes the transparent taxonomy-only amendment recorded in
+  `URDU_CRITIC_BENCHMARK_AMENDMENT_V2.md`; the original v1 pilot is preserved.
 - A pricing snapshot is frozen in the run manifest.
 - The configured hard cost ceiling is at most USD 100. A provider request must not
   be submitted when completed spend plus its conservative reservation would cross

@@ -155,7 +155,7 @@ def _critic_model() -> ModelSpec:
             "No Urdu critic is approved. Run and approve the frozen critic benchmark first."
         )
     approval = _load_json(APPROVAL_PATH)
-    if approval.get("version") != "urdu-critic-approval-v1":
+    if approval.get("version") != "urdu-critic-approval-v2":
         raise UrduProductionError("Unexpected Urdu critic approval version")
     if approval.get("benchmark_sha256") != file_hash(BENCHMARK_PATH):
         raise UrduProductionError("Urdu critic approval targets a different benchmark")

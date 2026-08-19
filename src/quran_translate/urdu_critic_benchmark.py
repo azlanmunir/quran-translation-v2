@@ -26,14 +26,14 @@ from .urdu_translation_bakeoff import (
 )
 
 
-BENCHMARK_PATH = DATA_DIR / "evidence" / "urdu-critic-regression-v1.json"
+BENCHMARK_PATH = DATA_DIR / "evidence" / "urdu-critic-regression-v2.json"
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "urdu-critic-production-v1.md"
 POLICY_PATH = PROJECT_ROOT / "prompts" / "urdu-translation-v1.md"
 SEMANTIC_LEDGER_MD_PATH = PROJECT_ROOT / "prompts" / "sense-ledger-v2.4.md"
 SEMANTIC_LEDGER_JSON_PATH = DATA_DIR / "evidence" / "sense-ledger-v2.4.json"
 URDU_LEDGER_PATH = PROJECT_ROOT / "prompts" / "urdu-production-ledger-v1.json"
-APPROVAL_PATH = DATA_DIR / "evidence" / "urdu-critic-approved-v1.json"
-DEFAULT_ROOT = OUTPUT_DIR / "urdu" / "critic-benchmarks" / "urdu-critic-regression-v1"
+APPROVAL_PATH = DATA_DIR / "evidence" / "urdu-critic-approved-v2.json"
+DEFAULT_ROOT = OUTPUT_DIR / "urdu" / "critic-benchmarks" / "urdu-critic-regression-v2"
 # PROVIDER_CALLS uses the frozen bakeoff transport, whose registered ceiling is
 # 24k. Keep the benchmark manifest honest about the request actually sent.
 MAX_OUTPUT_TOKENS = 24_000
@@ -84,7 +84,7 @@ def load_benchmark() -> dict[str, Any]:
     document = json.loads(BENCHMARK_PATH.read_text(encoding="utf-8"))
     cases = document.get("cases")
     thresholds = document.get("thresholds")
-    if document.get("version") != "urdu-critic-regression-v1":
+    if document.get("version") != "urdu-critic-regression-v2":
         raise UrduCriticBenchmarkError("Unexpected critic benchmark version")
     if not isinstance(cases, list) or not cases or not isinstance(thresholds, dict):
         raise UrduCriticBenchmarkError("Critic benchmark is malformed")
@@ -211,7 +211,7 @@ def score_response(benchmark: dict[str, Any], response: dict[str, Any]) -> dict[
         and required.issubset(detected)
     )
     return {
-        "version": "urdu-critic-regression-score-v1",
+        "version": "urdu-critic-regression-score-v2",
         "passed": passed,
         "defect_cases": len(defect_cases),
         "detected": detected,
@@ -228,7 +228,7 @@ def score_response(benchmark: dict[str, Any], response: dict[str, Any]) -> dict[
 def _manifest() -> dict[str, Any]:
     benchmark = load_benchmark()
     return {
-        "version": "urdu-critic-benchmark-manifest-v1",
+        "version": "urdu-critic-benchmark-manifest-v2",
         "benchmark_sha256": file_hash(BENCHMARK_PATH),
         "system_inputs": {
             str(path.relative_to(PROJECT_ROOT)): file_hash(path)
@@ -353,7 +353,7 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
                     "response failed exact benchmark contract"
                 )
             document = {
-                "version": "urdu-critic-benchmark-result-v1",
+                "version": "urdu-critic-benchmark-result-v2",
                 "input_hash": input_hash,
                 "status": "complete",
                 "model": asdict(model),
@@ -372,7 +372,7 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}"[:3000])
             failed_payload: dict[str, Any] = {
-                "version": "urdu-critic-benchmark-failure-v1",
+                "version": "urdu-critic-benchmark-failure-v2",
                 "input_hash": input_hash,
                 "model": asdict(model),
                 "attempt": attempt,
@@ -388,7 +388,7 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
                 failed_payload,
             )
     document = {
-        "version": "urdu-critic-benchmark-result-v1",
+        "version": "urdu-critic-benchmark-result-v2",
         "input_hash": input_hash,
         "status": "failed",
         "model": asdict(model),
@@ -427,7 +427,7 @@ def status(root: Path = DEFAULT_ROOT) -> dict[str, Any]:
             }
         )
     return {
-        "version": "urdu-critic-benchmark-status-v1",
+        "version": "urdu-critic-benchmark-status-v2",
         "benchmark": str(BENCHMARK_PATH),
         "results": rows,
         "total_cost_usd": round(sum(row["cost_usd"] for row in rows), 8),
@@ -453,7 +453,7 @@ def approve(candidate_id: str, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
             f"Pricing snapshot lacks critic candidate {model.model_id}"
         )
     approval = {
-        "version": "urdu-critic-approval-v1",
+        "version": "urdu-critic-approval-v2",
         "model": asdict(model),
         "benchmark_sha256": file_hash(BENCHMARK_PATH),
         "system_sha256": stable_hash(benchmark_system()),

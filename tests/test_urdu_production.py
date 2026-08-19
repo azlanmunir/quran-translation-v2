@@ -214,7 +214,7 @@ class UrduProductionTests(unittest.TestCase):
             atomic_json(
                 approval_path,
                 {
-                    "version": "urdu-critic-approval-v1",
+                    "version": "urdu-critic-approval-v2",
                     "model": model,
                     "benchmark_sha256": file_hash(BENCHMARK_PATH),
                     "system_sha256": stable_hash(benchmark_system()),

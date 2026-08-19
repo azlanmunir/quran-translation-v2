@@ -6,6 +6,7 @@ from __future__ import annotations
 TERMINAL_PROVIDER_MARKERS = (
     "billing",
     "credit_balance_exhausted",
+    "key limit exceeded",
     "insufficient_quota",
     "no credits remaining",
     "authentication",

@@ -21,6 +21,7 @@ from quran_translate.urdu_production import (
     usage_cost,
 )
 from quran_translate.urdu_critic_benchmark import BENCHMARK_PATH, benchmark_system
+from quran_translate.urdu_provider import is_terminal_provider_failure
 from quran_translate.urdu_translation_bakeoff import (
     TRANSLATION_SCHEMA,
     file_hash,
@@ -30,6 +31,13 @@ from quran_translate.urdu_translation_bakeoff import (
 
 
 class UrduProductionTests(unittest.TestCase):
+    def test_openrouter_key_limit_is_terminal(self) -> None:
+        self.assertTrue(
+            is_terminal_provider_failure(
+                RuntimeError("Provider HTTP 403: Key limit exceeded (total limit)")
+            )
+        )
+
     def test_frozen_price_math_handles_provider_usage_shapes(self) -> None:
         self.assertEqual(0.123, usage_cost(DRAFT_MODEL.model_id, {"cost": 0.123}))
         terra = usage_cost(

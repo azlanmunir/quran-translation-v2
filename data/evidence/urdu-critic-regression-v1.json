@@ -1,0 +1,117 @@
+{
+  "version": "urdu-critic-regression-v1",
+  "thresholds": {
+    "minimum_defect_recall": 0.8,
+    "maximum_clean_false_positive_rate": 0.2,
+    "required_case_ids": [
+      "and-to-or",
+      "rafath-softened",
+      "mubasharah-broadened",
+      "fajr-generalized",
+      "kalalah-collapsed",
+      "zinah-clinicalized",
+      "duha-softened"
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "and-to-or",
+      "ref": "2:177",
+      "urdu": "نیکی یہ نہیں کہ تم اپنے چہرے مشرق یا مغرب کی طرف پھیرو۔",
+      "expected": "defect",
+      "accepted_types": ["altered_scope", "sense_error"],
+      "minimum_severity": "significant",
+      "rationale": "Arabic waw joins east and west; Urdu ya makes them alternatives."
+    },
+    {
+      "case_id": "rafath-softened",
+      "ref": "2:187",
+      "urdu": "تمہارے لیے روزے کی رات میں اپنی عورتوں سے میل جول حلال کر دیا گیا ہے۔",
+      "expected": "defect",
+      "accepted_types": ["sense_error", "altered_scope"],
+      "minimum_severity": "significant",
+      "rationale": "Rafath here is sexual; ordinary mingling does not state the ruling."
+    },
+    {
+      "case_id": "mubasharah-broadened",
+      "ref": "2:187",
+      "urdu": "اور جب تم مسجدوں میں اعتکاف میں ہو تو ان سے نہ ملو۔",
+      "expected": "defect",
+      "accepted_types": ["sense_error", "altered_scope"],
+      "minimum_severity": "significant",
+      "rationale": "The sexual prohibition has become a prohibition on meeting."
+    },
+    {
+      "case_id": "fajr-generalized",
+      "ref": "2:187",
+      "urdu": "کھاؤ اور پیو یہاں تک کہ صبح کا سفید دھاگا کالے دھاگے سے واضح ہو جائے۔",
+      "expected": "defect",
+      "accepted_types": ["sense_error", "altered_scope"],
+      "minimum_severity": "significant",
+      "rationale": "The operative al-fajr boundary is reduced to generic morning."
+    },
+    {
+      "case_id": "kalalah-collapsed",
+      "ref": "4:12",
+      "urdu": "اور اگر کسی ایسے مرد یا عورت کا ترکہ تقسیم ہو جس کے نہ والدین ہوں نہ اولاد۔",
+      "expected": "defect",
+      "accepted_types": ["collapsed_ambiguity", "addition"],
+      "minimum_severity": "significant",
+      "rationale": "A disputed technical term is silently replaced by one definition."
+    },
+    {
+      "case_id": "parenthetical-tafsir",
+      "ref": "12:29",
+      "urdu": "یوسف، اس بات کو نظر انداز کر۔ اور (اے عورت) تو اپنے گناہ کی معافی مانگ۔",
+      "expected": "defect",
+      "accepted_types": ["addition"],
+      "minimum_severity": "significant",
+      "rationale": "The body text contains an explanatory address absent from the Arabic."
+    },
+    {
+      "case_id": "zinah-clinicalized",
+      "ref": "24:2",
+      "urdu": "ناجائز جنسی تعلق کرنے والی عورت اور ناجائز جنسی تعلق کرنے والا مرد، ان دونوں میں سے ہر ایک کو سو کوڑے مارو۔",
+      "expected": "defect",
+      "accepted_types": ["register_error", "sense_error"],
+      "minimum_severity": "significant",
+      "rationale": "Urdu already has the exact natural legal term zina; the clinical paraphrase distorts register."
+    },
+    {
+      "case_id": "duha-softened",
+      "ref": "93:7",
+      "urdu": "اور تمہیں راہ سے بے خبر پایا تو راہ دکھائی۔",
+      "expected": "defect",
+      "accepted_types": ["sense_error", "deadened_metaphor"],
+      "minimum_severity": "significant",
+      "rationale": "The rendering cushions dallan into mere unawareness."
+    },
+    {
+      "case_id": "clean-qisas-taqwa",
+      "ref": "2:179",
+      "urdu": "اور تمہارے لیے قصاص میں زندگی ہے، اے عقل والو، تاکہ تم بچ جاؤ۔",
+      "expected": "clean",
+      "accepted_types": [],
+      "minimum_severity": "minor",
+      "rationale": "A faithful legal-warning rendering and a clean control."
+    },
+    {
+      "case_id": "clean-zina",
+      "ref": "24:2",
+      "urdu": "زنا کرنے والی عورت اور زنا کرنے والا مرد، ان دونوں میں سے ہر ایک کو سو کوڑے لگاؤ۔",
+      "expected": "clean",
+      "accepted_types": [],
+      "minimum_severity": "minor",
+      "rationale": "Natural exact Urdu legal terminology and a clean control."
+    },
+    {
+      "case_id": "clean-duha",
+      "ref": "93:7",
+      "urdu": "اور تمہیں بھٹکا ہوا پایا تو ہدایت دی۔",
+      "expected": "clean",
+      "accepted_types": [],
+      "minimum_severity": "minor",
+      "rationale": "Preserves the source claim without a pious cushion."
+    }
+  ]
+}

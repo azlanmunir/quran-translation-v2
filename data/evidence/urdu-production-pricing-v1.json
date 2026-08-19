@@ -1,0 +1,37 @@
+{
+  "version": "urdu-production-pricing-v1",
+  "captured_on": "2026-08-18",
+  "currency": "USD",
+  "per_million_tokens": {
+    "meta/muse-spark-1.2": {
+      "transport": "openrouter-standard",
+      "input": 1.25,
+      "cached_input": 0.15,
+      "output": 4.25,
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "gpt-5.6-terra": {
+      "transport": "openai-standard",
+      "input": 2.0,
+      "cached_input": 0.2,
+      "output": 12.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra"
+    },
+    "gemini-3.7-flash": {
+      "transport": "google-standard",
+      "input": 0.75,
+      "cached_input": 0.075,
+      "output": 3.75,
+      "valid_through": "2026-12-31",
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    "claude-opus-4-6": {
+      "transport": "anthropic-batch",
+      "input": 2.5,
+      "cache_creation_input": 5.0,
+      "cached_input": 0.25,
+      "output": 12.5,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    }
+  }
+}

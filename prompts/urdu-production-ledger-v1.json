@@ -1,0 +1,85 @@
+{
+  "version": "urdu-production-ledger-v1",
+  "entries": [
+    {
+      "id": "UPL-ALLAH",
+      "refs": "all",
+      "condition": "The Arabic names Allah",
+      "preferred_urdu": ["اللہ"],
+      "prohibited_urdu": ["خدا"],
+      "reason": "Keep the divine name stable; do not introduce an Urdu register alternation absent from the Arabic."
+    },
+    {
+      "id": "UPL-TAQWA",
+      "refs": "QAC ROOT:وقي",
+      "condition": "Verbal forms in warning, law, retaliation, command, or judgment contexts",
+      "preferred_urdu": ["بچو", "بچ جاؤ", "بچ جائیں", "ڈرو", "خبردار رہو"],
+      "prohibited_urdu": ["تقویٰ اختیار کرو"],
+      "reason": "Render the active force instead of returning an untranslated abstraction. Descriptive participles may use متقی."
+    },
+    {
+      "id": "UPL-RAFATH",
+      "refs": ["2:187"],
+      "condition": "Sexual access during the nights of fasting",
+      "preferred_urdu": ["صحبت", "جنسی تعلق"],
+      "prohibited_urdu": ["میل جول"],
+      "reason": "The legal ruling concerns sexual relations, not ordinary social contact."
+    },
+    {
+      "id": "UPL-MUBASHARAH",
+      "refs": ["2:187"],
+      "condition": "The prohibition while in mosque retreat",
+      "preferred_urdu": ["مباشرت نہ کرو"],
+      "prohibited_urdu": ["نہ ملو"],
+      "reason": "Do not broaden a sexual prohibition into a ban on meeting one's wife."
+    },
+    {
+      "id": "UPL-FAJR",
+      "refs": ["2:187"],
+      "condition": "The legal dawn boundary for fasting",
+      "preferred_urdu": ["فجر"],
+      "prohibited_urdu": ["صبح"],
+      "reason": "Keep the operative legal boundary specific."
+    },
+    {
+      "id": "UPL-KALALAH",
+      "refs": ["4:12", "4:176"],
+      "condition": "The disputed inheritance term kalalah",
+      "preferred_urdu": ["کلالہ"],
+      "prohibited_urdu": [],
+      "reason": "Preserve the technical term in the body rather than silently choosing one disputed definition."
+    },
+    {
+      "id": "UPL-ZINA",
+      "refs": ["17:32", "24:2", "24:3"],
+      "condition": "The Quranic legal term zina and its active participles",
+      "preferred_urdu": ["زنا", "زنا کرنے والا", "زنا کرنے والی"],
+      "prohibited_urdu": ["ناجائز جنسی تعلق"],
+      "reason": "Zina is normal exact Urdu; a clinical paraphrase is less precise and less speakable."
+    },
+    {
+      "id": "UPL-SAMAD",
+      "refs": ["112:2"],
+      "condition": "Al-Samad",
+      "preferred_urdu": ["جس کے سب محتاج ہیں"],
+      "prohibited_urdu": [],
+      "reason": "Keep the adjudicated dependence direction without claiming that it exhausts the term."
+    },
+    {
+      "id": "UPL-HONORIFICS",
+      "refs": "all",
+      "condition": "Address to prophets and other human figures",
+      "preferred_urdu": [],
+      "prohibited_urdu": [],
+      "reason": "Do not add deferential plurals or courtly verbs solely because a participant is revered. Follow Arabic number and discourse relation."
+    },
+    {
+      "id": "UPL-CONJUNCTION",
+      "refs": ["2:177"],
+      "condition": "East and west joined by Arabic waw",
+      "preferred_urdu": ["مشرق اور مغرب"],
+      "prohibited_urdu": ["مشرق یا مغرب"],
+      "reason": "Do not change conjunction into disjunction."
+    }
+  ]
+}

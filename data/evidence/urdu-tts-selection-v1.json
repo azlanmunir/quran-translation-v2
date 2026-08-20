@@ -1,0 +1,10 @@
+{
+  "decision": "Use Gemini 2.5 Pro Preview TTS with Charon for the Urdu production candidate",
+  "model_id": "gemini-2.5-pro-preview-tts",
+  "selected_at": "2026-08-18T18:24:32Z",
+  "selected_blind_code": "Version A",
+  "selection_source": "quran-urdu-gemini-model-shootout-20260818-v1",
+  "user_assessment": "Version A is certainly better",
+  "voice_id": "Charon",
+  "version": "quran-urdu-tts-selection-v1"
+}

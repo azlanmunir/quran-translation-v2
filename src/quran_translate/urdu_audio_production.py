@@ -7,10 +7,12 @@ import base64
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
 import wave
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,14 @@ from .urdu_release import RELEASE_ID, RELEASE_ROOT
 
 PRODUCTION_ID = "quran-urdu-charon-production-v1"
 PRODUCTION_ROOT = DATA_DIR / "work" / "audio-urdu-v1" / PRODUCTION_ID
+PRE_BOUNDARY_RUN_ROOT = PRODUCTION_ROOT.with_name(
+    f"{PRODUCTION_ID}.pre-para-boundary-correction-20260819"
+)
 RELEASE_AUDIO_ROOT = OUTPUT_DIR / "audio" / "releases" / PRODUCTION_ID
 TRANSLATION_RUN_ROOT = (
     DATA_DIR / "work" / "urdu-production-v1" / "quran-urdu-production-v1-20260818"
 )
+JUZ_BOUNDARIES = DATA_DIR / "evidence" / "juz-boundaries-v1.json"
 HARD_ESTIMATED_BATCH_COST_USD = 20.0
 SHARD_TARGET_CHARACTERS = 30_000
 POLL_SECONDS = 30
@@ -126,56 +132,88 @@ def _build_units() -> list[dict[str, Any]]:
         (int(row["surah"]), int(row["ayah"])): str(row["urdu"])
         for row in rows
     }
+    ordered_refs = [(int(row["surah"]), int(row["ayah"])) for row in rows]
+    positions = {ref: index for index, ref in enumerate(ordered_refs)}
+    boundary_payload = _read_object(JUZ_BOUNDARIES)
+    raw_juzs = boundary_payload.get("juzs")
+    if not isinstance(raw_juzs, list) or len(raw_juzs) != 30:
+        raise UrduAudioProductionError("Canonical Para metadata must contain 30 ranges")
+    juz_by_ref: dict[tuple[int, int], int] = {}
+    previous_end = -1
+    for expected_juz, raw in enumerate(raw_juzs, start=1):
+        start = tuple(int(value) for value in str(raw["start_ref"]).split(":"))
+        end = tuple(int(value) for value in str(raw["end_ref"]).split(":"))
+        if start not in positions or end not in positions:
+            raise UrduAudioProductionError(f"Para {expected_juz} boundary is absent")
+        first_position = positions[start]
+        last_position = positions[end]
+        if first_position != previous_end + 1 or last_position < first_position:
+            raise UrduAudioProductionError(f"Para {expected_juz} is not contiguous")
+        for ref in ordered_refs[first_position : last_position + 1]:
+            juz_by_ref[ref] = expected_juz
+        previous_end = last_position
+    if previous_end != len(ordered_refs) - 1 or len(juz_by_ref) != 6_236:
+        raise UrduAudioProductionError("Canonical Para ranges do not cover the Quran")
+
     units: list[dict[str, Any]] = []
     covered: list[tuple[int, int]] = []
     for source_unit in source_units:
         surah = int(source_unit["surah"])
         first = int(source_unit["first_ayah"])
         last = int(source_unit["last_ayah"])
-        refs = [(surah, ayah) for ayah in range(first, last + 1)]
-        try:
+        source_refs = [(surah, ayah) for ayah in range(first, last + 1)]
+        segments: list[list[tuple[int, int]]] = []
+        for ref in source_refs:
+            if ref not in by_ref:
+                raise UrduAudioProductionError(f"Missing frozen Urdu ayah {ref}")
+            if not segments or juz_by_ref[ref] != juz_by_ref[segments[-1][-1]]:
+                segments.append([])
+            segments[-1].append(ref)
+        for refs in segments:
             lines = [by_ref[ref] for ref in refs]
-        except KeyError as exc:
-            raise UrduAudioProductionError(f"Missing frozen Urdu ayah {exc.args[0]}") from exc
-        speech_lines = [
-            _speech_ayah(f"{s}:{a}", by_ref[(s, a)]) for s, a in refs
-        ]
-        text = "\n".join(lines)
-        speech_text = "\n".join(speech_lines)
-        unit_id = str(source_unit["unit_id"])
-        units.append(
-            {
-                "unit_index": len(units) + 1,
-                "unit_id": unit_id,
-                "surah": surah,
-                "first_ayah": first,
-                "last_ayah": last,
-                "refs": [f"{s}:{a}" for s, a in refs],
-                "text": text,
-                "speech_text": speech_text,
-                "characters": len(text),
-                "speech_characters": len(speech_text),
-                "text_sha256": text_sha256(text),
-                "speech_text_sha256": text_sha256(speech_text),
-            }
-        )
-        covered.extend(refs)
+            speech_lines = [
+                _speech_ayah(f"{s}:{a}", by_ref[(s, a)]) for s, a in refs
+            ]
+            text = "\n".join(lines)
+            speech_text = "\n".join(speech_lines)
+            unit_id = f"s{surah:03d}_{refs[0][1]:03d}_{refs[-1][1]:03d}"
+            units.append(
+                {
+                    "unit_index": len(units) + 1,
+                    "unit_id": unit_id,
+                    "source_unit_id": str(source_unit["unit_id"]),
+                    "surah": surah,
+                    "juz": juz_by_ref[refs[0]],
+                    "first_ayah": refs[0][1],
+                    "last_ayah": refs[-1][1],
+                    "refs": [f"{s}:{a}" for s, a in refs],
+                    "text": text,
+                    "speech_text": speech_text,
+                    "characters": len(text),
+                    "speech_characters": len(speech_text),
+                    "text_sha256": text_sha256(text),
+                    "speech_text_sha256": text_sha256(speech_text),
+                }
+            )
+            covered.extend(refs)
     expected_refs = [(int(row["surah"]), int(row["ayah"])) for row in rows]
     if covered != expected_refs or len(set(covered)) != 6_236:
         raise UrduAudioProductionError("Audio units do not exactly cover the frozen release")
     return units
 
 
-def _make_shards(units: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+def _make_shards(
+    units: list[dict[str, Any]], *, seeded_units: int = 1
+) -> list[list[dict[str, Any]]]:
     # Fatihah is seeded from the approved pilot. The next unit is isolated as the
     # real Batch transport canary before the remaining jobs are submitted.
-    pending = units[1:]
+    pending = units[seeded_units:]
     if not pending:
         return []
-    shards = [[pending[0]]]
+    shards = [[pending[0]]] if seeded_units == 1 else []
     current: list[dict[str, Any]] = []
     current_chars = 0
-    for unit in pending[1:]:
+    for unit in (pending[1:] if seeded_units == 1 else pending):
         characters = int(unit["speech_characters"])
         if current and current_chars + characters > SHARD_TARGET_CHARACTERS:
             shards.append(current)
@@ -226,7 +264,7 @@ def _fingerprint(units: list[dict[str, Any]]) -> str:
     release = _read_object(RELEASE_ROOT / "MANIFEST.json")
     pilot_approval = _read_object(PILOT_ROOT / "PILOT_APPROVED.json")
     payload = {
-        "version": "quran-urdu-charon-production-input-v1",
+        "version": "quran-urdu-charon-production-input-v2",
         "production_id": PRODUCTION_ID,
         "release_id": RELEASE_ID,
         "release_sha256": release["artifact_sha256"]["quran-urdu.json"],
@@ -289,6 +327,41 @@ def _pilot_seed(unit: dict[str, Any], root: Path) -> dict[str, Any]:
     }
 
 
+def _preserved_canary_seed(unit: dict[str, Any], root: Path) -> dict[str, Any] | None:
+    state_path = PRE_BOUNDARY_RUN_ROOT / "RUN.json"
+    units_path = PRE_BOUNDARY_RUN_ROOT / "UNITS.json"
+    if not state_path.exists() or not units_path.exists():
+        return None
+    prior_state = _read_object(state_path)
+    prior_units = {item["unit_id"]: item for item in _read_json(units_path)}
+    prior_jobs = {item["unit_id"]: item for item in prior_state.get("jobs", [])}
+    prior_unit = prior_units.get(unit["unit_id"])
+    prior_job = prior_jobs.get(unit["unit_id"])
+    if not prior_unit or not prior_job or prior_job.get("status") != "complete":
+        return None
+    if prior_unit.get("text_sha256") != unit["text_sha256"]:
+        raise UrduAudioProductionError("Preserved Batch canary text does not match")
+    source = PRE_BOUNDARY_RUN_ROOT / "raw" / f"{unit['unit_id']}.wav"
+    normalized = PRE_BOUNDARY_RUN_ROOT / "clips" / f"{unit['unit_id']}.mp3"
+    if not source.exists() or not normalized.exists():
+        raise UrduAudioProductionError("Preserved Batch canary audio is missing")
+    raw_path = root / "raw" / f"{unit['unit_id']}.wav"
+    mp3_path = root / "clips" / f"{unit['unit_id']}.mp3"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    mp3_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, raw_path)
+    shutil.copy2(normalized, mp3_path)
+    return {
+        **{key: value for key, value in prior_job.items() if key not in {"raw_path", "normalized_path"}},
+        "status": "complete",
+        "source": "preserved_batch_canary",
+        "raw_path": str(raw_path),
+        "normalized_path": str(mp3_path),
+        "raw_sha256": file_sha256(raw_path),
+        "normalized_sha256": file_sha256(mp3_path),
+    }
+
+
 def prepare(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
     approval = PILOT_ROOT / "PILOT_APPROVED.json"
     if not approval.exists():
@@ -317,7 +390,9 @@ def prepare(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     atomic_json(root / "UNITS.json", units)
     atomic_json(root / "COST_GUARD.json", estimate)
-    shards = _make_shards(units)
+    preserved_canary = _preserved_canary_seed(units[1], root)
+    seeded_units = 2 if preserved_canary else 1
+    shards = _make_shards(units, seeded_units=seeded_units)
     batches: list[dict[str, Any]] = []
     for index, shard in enumerate(shards, start=1):
         text = "\n".join(_request_line(unit) for unit in shard) + "\n"
@@ -327,7 +402,7 @@ def prepare(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
         batches.append(
             {
                 "shard": index,
-                "canary": index == 1,
+                "canary": index == 1 and preserved_canary is None,
                 "status": "prepared",
                 "input_path": str(path),
                 "input_sha256": text_sha256(text),
@@ -349,6 +424,8 @@ def prepare(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
         }
         if unit["unit_index"] == 1:
             job.update(_pilot_seed(unit, root))
+        elif unit["unit_index"] == 2 and preserved_canary:
+            job.update(preserved_canary)
         jobs.append(job)
     state = {
         "version": "quran-urdu-charon-production-run-v1",
@@ -362,6 +439,7 @@ def prepare(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
         "status": "prepared",
         "prepared_at": utc_now(),
         "updated_at": utc_now(),
+        "canary_status": "passed_imported" if preserved_canary else "pending",
         "jobs": jobs,
         "batches": batches,
     }
@@ -369,13 +447,13 @@ def prepare(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
     atomic_json(
         root / "MANIFEST.json",
         {
-            "version": "quran-urdu-charon-production-manifest-v1",
+            "version": "quran-urdu-charon-production-manifest-v2",
             "production_id": PRODUCTION_ID,
             "input_fingerprint": fingerprint,
             "units": len(units),
             "ayahs": 6_236,
             "shards": len(shards),
-            "seeded_units": 1,
+            "seeded_units": seeded_units,
             "pronunciation_overrides": {
                 ref: {"source_prefix": source, "spoken_prefix": spoken}
                 for ref, (source, spoken) in PRONUNCIATION_OVERRIDES.items()
@@ -525,6 +603,251 @@ def _usage(response: dict[str, Any], duration: float) -> dict[str, int]:
     return {"prompt_tokens": prompt, "output_tokens": output}
 
 
+def _ffconcat_line(path: Path) -> str:
+    escaped = str(path.resolve()).replace("'", "'\\''")
+    return f"file '{escaped}'"
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def _surah_names() -> dict[int, str]:
+    listening = OUTPUT_DIR / "release" / "quran-translation-v2.4.1" / "quran-listening-edition.json"
+    payload = _read_object(listening)
+    rows = payload.get("ayahs")
+    if not isinstance(rows, list) or len(rows) != 6_236:
+        raise UrduAudioProductionError("English listening edition is missing Surah names")
+    names: dict[int, str] = {}
+    for row in rows:
+        surah = int(row["surah"])
+        names.setdefault(surah, str(row["surah_name_en"]))
+    if len(names) != 114:
+        raise UrduAudioProductionError("Expected names for 114 Surahs")
+    return names
+
+
+def _concat_mp3(inputs: list[Path], output: Path, *, title: str, track: int | None = None) -> None:
+    if not inputs:
+        raise UrduAudioProductionError(f"No source clips for {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    concat_path = output.with_name(f".{output.name}.concat.txt")
+    temp = output.with_name(f".{output.name}.tmp.mp3")
+    atomic_text(concat_path, "\n".join(_ffconcat_line(path) for path in inputs) + "\n")
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat",
+        "-safe", "0", "-i", str(concat_path), "-map_metadata", "-1", "-c", "copy",
+        "-id3v2_version", "3", "-metadata", f"title={title}",
+        "-metadata", "album=The Quran - Urdu Translation",
+        "-metadata", "artist=Narrated with Gemini Charon",
+    ]
+    if track is not None:
+        command.extend(["-metadata", f"track={track}"])
+    command.append(str(temp))
+    try:
+        subprocess.run(command, check=True, capture_output=True)
+        os.replace(temp, output)
+    finally:
+        concat_path.unlink(missing_ok=True)
+        temp.unlink(missing_ok=True)
+
+
+def _decode_check(path: Path) -> None:
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path), "-f", "null", "-"],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _assembled_record(
+    *,
+    output_type: str,
+    output_id: str,
+    label: str,
+    path: Path,
+    jobs: list[dict[str, Any]],
+    units: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    probe = _probe(path)
+    expected = sum(float(job["probe"]["duration_seconds"]) for job in jobs)
+    tolerance = max(3.0, expected * 0.005)
+    if abs(probe["duration_seconds"] - expected) > tolerance:
+        raise UrduAudioProductionError(
+            f"Assembled duration mismatch for {path}: {probe['duration_seconds']} vs {expected}"
+        )
+    if probe["codec"] != "mp3" or probe["sample_rate"] != 44_100 or probe["channels"] != 1:
+        raise UrduAudioProductionError(f"Assembled audio contract failed for {path}: {probe}")
+    first = units[jobs[0]["unit_id"]]["refs"][0]
+    last = units[jobs[-1]["unit_id"]]["refs"][-1]
+    return {
+        "type": output_type,
+        "id": output_id,
+        "label": label,
+        "range": f"{first}-{last}",
+        "path": str(path),
+        "sha256": file_sha256(path),
+        **probe,
+        "source_units": [job["unit_id"] for job in jobs],
+    }
+
+
+def assemble(
+    root: Path = PRODUCTION_ROOT,
+    release_root: Path = RELEASE_AUDIO_ROOT,
+    *,
+    decode_check: bool = True,
+) -> dict[str, Any]:
+    state = _read_object(root / "RUN.json")
+    if any(job.get("status") != "complete" for job in state.get("jobs", [])):
+        raise UrduAudioProductionError("All synthesis units must complete before assembly")
+    units_list = _read_json(root / "UNITS.json")
+    units = {unit["unit_id"]: unit for unit in units_list}
+    jobs = state["jobs"]
+    for job in jobs:
+        path = Path(job["normalized_path"])
+        if not path.exists() or file_sha256(path) != job.get("normalized_sha256"):
+            raise UrduAudioProductionError(f"Master clip integrity failure: {path}")
+
+    assembly_path = root / "ASSEMBLY_STATE.json"
+    if assembly_path.exists():
+        assembly_state = _read_object(assembly_path)
+        if assembly_state.get("input_fingerprint") != state["input_fingerprint"]:
+            raise UrduAudioProductionError("Assembly input fingerprint changed")
+    else:
+        assembly_state = {
+            "version": "quran-urdu-charon-assembly-state-v1",
+            "input_fingerprint": state["input_fingerprint"],
+            "status": "assembling",
+            "outputs": [],
+            "started_at": utc_now(),
+        }
+        atomic_json(assembly_path, assembly_state)
+    completed = {record["path"]: record for record in assembly_state["outputs"]}
+
+    by_surah: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    by_juz: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for job in jobs:
+        unit = units[job["unit_id"]]
+        by_surah[int(unit["surah"])].append(job)
+        by_juz[int(unit["juz"])].append(job)
+    if len(by_surah) != 114 or len(by_juz) != 30:
+        raise UrduAudioProductionError("Assembly groups must contain 114 Surahs and 30 Paras")
+    names = _surah_names()
+
+    specifications: list[tuple[str, str, str, Path, list[dict[str, Any]], int | None]] = []
+    for surah in range(1, 115):
+        name = names[surah]
+        specifications.append(
+            (
+                "surah", f"{surah:03d}", name,
+                release_root / "by-surah" / f"{surah:03d}-{_slug(name)}.mp3",
+                by_surah[surah], surah,
+            )
+        )
+    for juz in range(1, 31):
+        specifications.append(
+            (
+                "para", f"{juz:02d}", f"Para {juz} of 30",
+                release_root / "by-para" / f"para-{juz:02d}-of-30.mp3",
+                by_juz[juz], juz,
+            )
+        )
+    specifications.append(
+        (
+            "full_book", "full", "The Quran - Urdu Translation",
+            release_root / "full-book" / "quran-urdu-complete.mp3", jobs, None,
+        )
+    )
+
+    for output_type, output_id, label, path, group, track in specifications:
+        prior = completed.get(str(path))
+        if prior:
+            if not path.exists() or file_sha256(path) != prior["sha256"]:
+                raise UrduAudioProductionError(f"Completed assembly output changed: {path}")
+            continue
+        _concat_mp3(
+            [Path(job["normalized_path"]) for job in group],
+            path,
+            title=label,
+            track=track,
+        )
+        record = _assembled_record(
+            output_type=output_type,
+            output_id=output_id,
+            label=label,
+            path=path,
+            jobs=group,
+            units=units,
+        )
+        assembly_state["outputs"].append(record)
+        assembly_state["updated_at"] = utc_now()
+        atomic_json(assembly_path, assembly_state)
+
+    outputs = assembly_state["outputs"]
+    if len(outputs) != 145:
+        raise UrduAudioProductionError(f"Expected 145 release MP3s, found {len(outputs)}")
+    if decode_check:
+        for record in outputs:
+            _decode_check(Path(record["path"]))
+
+    manifest = {
+        "version": "quran-urdu-charon-audio-release-v1",
+        "production_id": PRODUCTION_ID,
+        "release_id": RELEASE_ID,
+        "created_at": utc_now(),
+        "input_fingerprint": state["input_fingerprint"],
+        "voice": {"provider": "google", "model_id": MODEL_ID, "voice_id": VOICE_ID},
+        "counts": {"master_units": len(jobs), "surahs": 114, "paras": 30, "full_book": 1},
+        "totals": {
+            "master_duration_seconds": round(
+                sum(float(job["probe"]["duration_seconds"]) for job in jobs), 3
+            ),
+            "release_bytes": sum(int(record["bytes"]) for record in outputs),
+            "recorded_batch_spend_usd": round(
+                sum(float(job.get("actual_batch_cost_usd", 0)) for job in jobs), 6
+            ),
+        },
+        "qa": {
+            "all_master_hashes_verified": True,
+            "all_output_durations_verified": True,
+            "audio_contract": "MP3, 44.1 kHz, mono, approximately 192 kbps",
+            "full_decode_check": decode_check,
+        },
+        "outputs": outputs,
+    }
+    release_root.mkdir(parents=True, exist_ok=True)
+    atomic_json(release_root / "RELEASE_MANIFEST.json", manifest)
+    qa = {
+        "version": "quran-urdu-charon-audio-qa-v1",
+        "passed": True,
+        "counts": manifest["counts"],
+        "totals": manifest["totals"],
+        "qa": manifest["qa"],
+    }
+    atomic_json(release_root / "QA_REPORT.json", qa)
+    checksum_paths = [Path(record["path"]) for record in outputs] + [
+        release_root / "RELEASE_MANIFEST.json",
+        release_root / "QA_REPORT.json",
+    ]
+    atomic_text(
+        release_root / "SHA256SUMS.txt",
+        "\n".join(
+            f"{file_sha256(path)}  {path.relative_to(release_root)}" for path in checksum_paths
+        )
+        + "\n",
+    )
+    assembly_state["status"] = "complete"
+    assembly_state["completed_at"] = utc_now()
+    atomic_json(assembly_path, assembly_state)
+    state["status"] = "complete"
+    state["release_root"] = str(release_root)
+    state["completed_at"] = utc_now()
+    _save_state(root, state)
+    atomic_json(root / "PRODUCTION_COMPLETE.json", {"qa": qa, "release_root": str(release_root)})
+    return manifest
+
+
 def _collect_batch(client: Any, root: Path, state: dict[str, Any], batch: dict[str, Any]) -> None:
     if batch["status"] not in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
         raise UrduAudioProductionError(f"Shard {batch['shard']} is not collectable")
@@ -666,26 +989,29 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
     if not api_key:
         raise UrduAudioProductionError("GOOGLE_API_KEY is missing")
     client = genai.Client(api_key=api_key)
-    state["status"] = "running_canary"
-    _save_state(root, state)
-
-    canary = state["batches"][0]
-    if canary["status"] == "prepared":
-        _submit_batch(client, root, state, canary)
-    while canary["status"] not in TERMINAL_STATES and canary["status"] != "collected":
-        time.sleep(poll_seconds)
-        _poll_batch(client, root, state, canary)
-    if canary["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
-        _collect_batch(client, root, state, canary)
-    if canary["status"] != "collected":
-        state["status"] = "blocked"
-        canary["last_error"] = f"Canary ended in {canary['status']}"
+    first_full_batch = 0
+    if state.get("canary_status") != "passed_imported":
+        state["status"] = "running_canary"
         _save_state(root, state)
-        raise UrduAudioProductionError(canary["last_error"])
+        canary = state["batches"][0]
+        if canary["status"] == "prepared":
+            _submit_batch(client, root, state, canary)
+        while canary["status"] not in TERMINAL_STATES and canary["status"] != "collected":
+            time.sleep(poll_seconds)
+            _poll_batch(client, root, state, canary)
+        if canary["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
+            _collect_batch(client, root, state, canary)
+        if canary["status"] != "collected":
+            state["status"] = "blocked"
+            canary["last_error"] = f"Canary ended in {canary['status']}"
+            _save_state(root, state)
+            raise UrduAudioProductionError(canary["last_error"])
+        state["canary_status"] = "passed"
+        first_full_batch = 1
 
     state["status"] = "submitting_full_batch"
     _save_state(root, state)
-    for batch in state["batches"][1:]:
+    for batch in state["batches"][first_full_batch:]:
         if batch["status"] == "prepared":
             _submit_batch(client, root, state, batch)
     state["status"] = "waiting_for_batches"
@@ -693,7 +1019,7 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
 
     while True:
         active = False
-        for batch in state["batches"][1:]:
+        for batch in state["batches"][first_full_batch:]:
             if batch["status"] in {"collected", "collection_blocked"}:
                 continue
             if batch["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
@@ -714,7 +1040,9 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
     if any(job["status"] != "complete" for job in state["jobs"]):
         state["status"] = "blocked"
         _save_state(root, state)
-        raise UrduAudioProductionError("Not all 323 synthesis units completed")
+        raise UrduAudioProductionError(
+            f"Not all {len(state['jobs'])} synthesis units completed"
+        )
     state["status"] = "synthesis_complete"
     state["completed_at"] = utc_now()
     _save_state(root, state)
@@ -725,13 +1053,18 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "status", "run"), nargs="?", default="status")
+    parser.add_argument(
+        "action", choices=("prepare", "status", "run", "assemble"), nargs="?", default="status"
+    )
     parser.add_argument("--poll-seconds", type=int, default=POLL_SECONDS)
+    parser.add_argument("--skip-decode-check", action="store_true")
     args = parser.parse_args()
     if args.action == "prepare":
         result = prepare()
     elif args.action == "run":
         result = run(poll_seconds=args.poll_seconds)
+    elif args.action == "assemble":
+        result = assemble(decode_check=not args.skip_decode_check)
     else:
         result = status()
     print(json.dumps(result, ensure_ascii=False, indent=2))

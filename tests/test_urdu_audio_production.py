@@ -22,11 +22,12 @@ from quran_translate.urdu_audio_production import (
 class UrduAudioProductionTests(unittest.TestCase):
     def test_frozen_units_cover_every_ayah_once(self) -> None:
         units = _build_units()
-        self.assertEqual(len(units), 323)
+        self.assertEqual(len(units), 343)
         self.assertEqual(sum(len(unit["refs"]) for unit in units), 6_236)
         self.assertEqual(units[0]["refs"][0], "1:1")
         self.assertEqual(units[-1]["refs"][-1], "114:6")
         self.assertLess(max(unit["speech_characters"] for unit in units), 6_000)
+        self.assertTrue(all(unit["juz"] for unit in units))
 
     def test_pronunciation_overrides_are_exact_guarded(self) -> None:
         self.assertEqual(
@@ -60,12 +61,15 @@ class UrduAudioProductionTests(unittest.TestCase):
         self.assertEqual(shards[0][0]["unit_index"], 2)
         flattened = [unit["unit_id"] for shard in shards for unit in shard]
         self.assertEqual(flattened, [unit["unit_id"] for unit in units[1:]])
+        seeded_shards = _make_shards(units, seeded_units=2)
+        seeded_flattened = [unit["unit_id"] for shard in seeded_shards for unit in shard]
+        self.assertEqual(seeded_flattened, [unit["unit_id"] for unit in units[2:]])
 
     def test_prepare_is_immutable_and_below_cost_ceiling(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             state = prepare(root)
-            self.assertEqual(len(state["jobs"]), 323)
+            self.assertEqual(len(state["jobs"]), 343)
             self.assertEqual(state["jobs"][0]["source"], "approved_pilot_reuse")
             self.assertEqual(state["jobs"][0]["status"], "complete")
             self.assertEqual(prepare(root)["input_fingerprint"], state["input_fingerprint"])

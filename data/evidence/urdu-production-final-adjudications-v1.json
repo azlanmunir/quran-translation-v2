@@ -1,0 +1,76 @@
+{
+  "decisions": [
+    {
+      "after": "اگر تم بھلائی کرو گے تو اپنے ہی لیے بھلائی کرو گے اور اگر برائی کرو گے تو وہ بھی اسی پر پڑے گی۔ پھر جب دوسرے وعدے کا وقت آیا تو یہ اس لیے تھا کہ وہ تمہارے چہرے بگاڑ دیں، مسجد میں اسی طرح داخل ہوں جیسے پہلی بار داخل ہوئے تھے، اور جس چیز پر قابو پائیں اسے بری طرح تباہ کر دیں۔",
+      "ayah": 7,
+      "before": "اگر تم بھلائی کرو گے تو اپنے ہی لیے بھلائی کرو گے اور اگر برائی کرو گے تو وہ بھی اسی پر پڑے گی، پھر جب دوسرے وعدے کا وقت آیا تاکہ وہ تمہارے چہرے بگاڑ دیں اور مسجد میں داخل ہوں جیسے پہلی بار داخل ہوئے تھے اور جس چیز پر قابو پائیں اسے بری طرح تباہ کر دیں۔",
+      "category": "elided_apodosis_spoken_repair",
+      "evidence": [
+        "TANZIL:17:7",
+        "QAC_LOCAL:17:7",
+        "PROJECT_ENGLISH_FINAL:17:7",
+        "https://quran-tafsir.net/tabary/sura17-aya7.html",
+        "https://quran.ksu.edu.sa/tafseer/qortobi/sura17-aya7.html"
+      ],
+      "expected_unresolved_records": 2,
+      "rationale": "The Arabic leaves the apodosis understood. Urdu cannot retain the draft's dangling 'جب ... تاکہ' construction without sounding broken. 'تو یہ اس لیے تھا کہ' supplies only a grammatical carrier for the explicit purpose clauses; it does not name an omitted agent or import narrative content.",
+      "ref": "17:7",
+      "unit_id": "s017_001_024"
+    },
+    {
+      "after": "یہ ہدایت ہے، اور جنہوں نے اپنے رب کی آیات کا انکار کیا ان کے لیے سخت دردناک عذاب ہے۔",
+      "ayah": 11,
+      "before": "یہ ہدایت ہے اور جنہوں نے اپنے رب کی آیات کا انکار کیا ان کے لیے رجز کا دردناک عذاب ہے۔",
+      "category": "rijz_lexical_resolution",
+      "evidence": [
+        "TANZIL:45:11",
+        "QAC_LOCAL:45:11",
+        "PROJECT_ENGLISH_FINAL:45:11",
+        "https://islamweb.net/ar/library/content/122/3061/%D8%B1%D8%AC%D8%B2",
+        "https://quran.ksu.edu.sa/tafseer/qortobi/sura45-aya11.html"
+      ],
+      "expected_unresolved_records": 2,
+      "rationale": "In this construction rijz denotes severe or convulsing punishment, not the Urdu martial-poetry loan and not rijs, filth or loathsomeness. 'سخت' preserves its intensifying force while 'دردناک' renders alim without misleading the listener.",
+      "ref": "45:11",
+      "unit_id": "s045_001_024"
+    },
+    {
+      "after": "اور منات کو، جو ان دونوں کے علاوہ تیسری تھی؟",
+      "ayah": 20,
+      "before": "اور تیسری، دوسری منات کو",
+      "category": "explicit_epithet_repair",
+      "evidence": [
+        "TANZIL:53:20",
+        "QAC_LOCAL:53:20",
+        "PROJECT_ENGLISH_FINAL:53:20",
+        "https://quran.ksu.edu.sa/tafseer/qortobi/sura53-aya20.html",
+        "https://quran-tafsir.net/alrazy/sura53-aya20.html"
+      ],
+      "expected_unresolved_records": 2,
+      "rationale": "Al-ukhra must not be dropped, but Urdu 'تیسری، دوسری' creates a false numerical clash. 'ان دونوں کے علاوہ' expresses Manat as the other one in addition to the two named in 53:19 while retaining 'تیسری' and avoiding a silently imported disparaging gloss.",
+      "ref": "53:20",
+      "unit_id": "s053_001_024"
+    },
+    {
+      "after": "امید ہے کہ اس کا رب اگر وہ تمہیں طلاق دے دے تو تمہارے بدلے اسے تم سے بہتر بیویاں دے گا، جو مسلمان، مومن، اطاعت گزار، توبہ کرنے والی، عبادت کرنے والی، روزہ رکھنے والی، شوہر دیدہ اور کنواری ہوں گی۔",
+      "alternate_reading": "Classical sources also record 'migrating women'; the bare root can denote travelling. The body text follows the dominant contextual reading, fasting women.",
+      "ayah": 5,
+      "before": "امید ہے کہ اس کا رب اگر وہ تمہیں طلاق دے دے تو تمہارے بدلے اسے تم سے بہتر بیویاں دے گا، جو مسلمان، مومن، اطاعت گزار، توبہ کرنے والی، عبادت کرنے والی، سفر کرنے والی، شوہر دیدہ اور کنواری ہوں گی۔",
+      "category": "saihat_contextual_sense",
+      "evidence": [
+        "TANZIL:66:5",
+        "QAC_LOCAL:66:5",
+        "PROJECT_ENGLISH_FINAL:66:5",
+        "https://quran-tafsir.net/katheer/sura66-aya5.html",
+        "https://quran-tafsir.net/tabary/sura66-aya5.html"
+      ],
+      "expected_unresolved_records": 1,
+      "rationale": "Sense precedes etymology. In this list of religious qualities, the dominant early and classical interpretation is fasting women; Ibn Kathir attributes it to a broad group of early authorities, while Tabari also preserves the minority migration reading. This matches the project's adjudicated English edition and records rather than conceals the alternative.",
+      "ref": "66:5",
+      "unit_id": "s066_001_012"
+    }
+  ],
+  "expected_unresolved_sha256": "77b5b1e6cb43a2e8f7c546c8fe14a3b1977906d8c1c58436fbea1c6b32d589c4",
+  "run_id": "quran-urdu-production-v1-20260818",
+  "version": "quran-urdu-final-adjudications-v1"
+}

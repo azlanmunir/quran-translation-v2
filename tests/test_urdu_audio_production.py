@@ -4,6 +4,7 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from quran_translate.urdu_audio_production import (
     HARD_ESTIMATED_BATCH_COST_USD,
@@ -16,7 +17,9 @@ from quran_translate.urdu_audio_production import (
     _request_line,
     _speech_ayah,
     prepare,
+    resume_quota_wave,
 )
+from quran_translate.production_packets import atomic_json
 
 
 class UrduAudioProductionTests(unittest.TestCase):
@@ -81,6 +84,38 @@ class UrduAudioProductionTests(unittest.TestCase):
     def test_generation_config_sets_urdu_language(self) -> None:
         config = _generation_config()
         self.assertEqual(config["speechConfig"]["languageCode"], "ur")
+
+    def test_quota_recovery_preserves_failure_and_opens_one_wave(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            atomic_json(
+                root / "RUN.json",
+                {
+                    "status": "blocked",
+                    "quota_recovery_waves": 0,
+                    "batches": [
+                        {"shard": 1, "status": "collected", "batch_id": "batches/one"},
+                        {
+                            "shard": 2,
+                            "status": "submission_blocked",
+                            "batch_id": None,
+                            "last_error": "429 RESOURCE_EXHAUSTED",
+                            "uploaded_file_name": "files/two",
+                        },
+                    ],
+                },
+            )
+            with mock.patch(
+                "quran_translate.urdu_audio_production.run", return_value={"status": "started"}
+            ) as run_mock:
+                result = resume_quota_wave(root, poll_seconds=1)
+            self.assertEqual(result, {"status": "started"})
+            updated = json.loads((root / "RUN.json").read_text())
+            recovered = updated["batches"][1]
+            self.assertEqual(recovered["status"], "prepared")
+            self.assertEqual(len(recovered["failure_history"]), 1)
+            self.assertEqual(updated["quota_recovery_waves"], 1)
+            run_mock.assert_called_once_with(root, poll_seconds=1)
 
 
 if __name__ == "__main__":

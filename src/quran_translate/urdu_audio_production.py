@@ -969,6 +969,92 @@ def status(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
     }
 
 
+def collect_submitted(
+    root: Path = PRODUCTION_ROOT, *, poll_seconds: int = POLL_SECONDS
+) -> dict[str, Any]:
+    """Collect only already accepted provider jobs; never submit new work."""
+    state = _read_object(root / "RUN.json")
+    load_dotenv()
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        raise UrduAudioProductionError("GOOGLE_API_KEY is missing")
+    client = genai.Client(api_key=api_key)
+    state["status"] = "quota_blocked_collecting_submitted"
+    _save_state(root, state)
+    while True:
+        active = False
+        for batch in state["batches"]:
+            if not batch.get("batch_id") or batch["status"] == "collected":
+                continue
+            if batch["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
+                _collect_batch(client, root, state, batch)
+                continue
+            if batch["status"] in TERMINAL_STATES:
+                batch["last_error"] = f"Provider batch ended in {batch['status']}"
+                state["status"] = "blocked"
+                _save_state(root, state)
+                raise UrduAudioProductionError(batch["last_error"])
+            provider_state = _poll_batch(client, root, state, batch)
+            if provider_state in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
+                _collect_batch(client, root, state, batch)
+            elif provider_state in TERMINAL_STATES:
+                batch["last_error"] = f"Provider batch ended in {provider_state}"
+                state["status"] = "blocked"
+                _save_state(root, state)
+                raise UrduAudioProductionError(batch["last_error"])
+            else:
+                active = True
+        if not active:
+            break
+        time.sleep(poll_seconds)
+    state["status"] = "quota_blocked"
+    _save_state(root, state)
+    summary = status(root)
+    atomic_json(root / "SUBMITTED_BATCHES_COLLECTED.json", summary)
+    return summary
+
+
+def resume_quota_wave(
+    root: Path = PRODUCTION_ROOT, *, poll_seconds: int = POLL_SECONDS
+) -> dict[str, Any]:
+    """Start one later submission wave after every prior accepted job is collected."""
+    state = _read_object(root / "RUN.json")
+    active = [
+        batch
+        for batch in state["batches"]
+        if batch.get("batch_id") and batch["status"] != "collected"
+    ]
+    if active:
+        raise UrduAudioProductionError("Collect all accepted Batch jobs before quota recovery")
+    blocked = [batch for batch in state["batches"] if batch["status"] == "submission_blocked"]
+    if len(blocked) != 1:
+        raise UrduAudioProductionError("Quota recovery requires exactly one blocked submission")
+    batch = blocked[0]
+    error = str(batch.get("last_error") or "")
+    if "429" not in error or "RESOURCE_EXHAUSTED" not in error:
+        raise UrduAudioProductionError("Blocked submission is not an eligible quota failure")
+    recoveries = int(state.get("quota_recovery_waves", 0))
+    if recoveries >= 8:
+        raise UrduAudioProductionError("Quota recovery wave ceiling reached")
+    batch.setdefault("failure_history", []).append(
+        {
+            "status": "submission_blocked",
+            "error": error,
+            "preserved_at": utc_now(),
+            "uploaded_file_name": batch.get("uploaded_file_name"),
+        }
+    )
+    batch["status"] = "prepared"
+    batch["last_error"] = None
+    batch["uploaded_file_name"] = None
+    batch["submission_intent_at"] = None
+    batch["batch_create_intent_at"] = None
+    state["quota_recovery_waves"] = recoveries + 1
+    state["status"] = "prepared_quota_recovery_wave"
+    _save_state(root, state)
+    return run(root, poll_seconds=poll_seconds)
+
+
 def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[str, Any]:
     state = prepare(root)
     if state["status"] in {"blocked", "synthesis_complete"}:
@@ -1054,7 +1140,12 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=("prepare", "status", "run", "assemble"), nargs="?", default="status"
+        "action",
+        choices=(
+            "prepare", "status", "run", "collect-submitted", "resume-quota-wave", "assemble"
+        ),
+        nargs="?",
+        default="status",
     )
     parser.add_argument("--poll-seconds", type=int, default=POLL_SECONDS)
     parser.add_argument("--skip-decode-check", action="store_true")
@@ -1065,6 +1156,10 @@ def main() -> None:
         result = run(poll_seconds=args.poll_seconds)
     elif args.action == "assemble":
         result = assemble(decode_check=not args.skip_decode_check)
+    elif args.action == "collect-submitted":
+        result = collect_submitted(poll_seconds=args.poll_seconds)
+    elif args.action == "resume-quota-wave":
+        result = resume_quota_wave(poll_seconds=args.poll_seconds)
     else:
         result = status()
     print(json.dumps(result, ensure_ascii=False, indent=2))

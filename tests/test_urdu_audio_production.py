@@ -181,6 +181,44 @@ class UrduAudioProductionTests(unittest.TestCase):
                 1,
             )
 
+            first_recovery = next(
+                batch for batch in unchanged["batches"] if batch.get("failed_unit_recovery")
+            )
+            first_recovery.update(
+                {"status": "collected_with_failures", "batch_id": "batches/recovery-one"}
+            )
+            repeated_id = failed_ids[0]
+            repeated_job = next(
+                job for job in unchanged["jobs"] if job["unit_id"] == repeated_id
+            )
+            repeated_job.update(
+                {"status": "failed", "last_error": "recovery provider item failed"}
+            )
+            atomic_json(root / "RUN.json", unchanged)
+
+            prepare_failed_unit_recovery(root)
+            second = json.loads((root / "RUN.json").read_text())
+            recoveries = [
+                batch for batch in second["batches"] if batch.get("failed_unit_recovery")
+            ]
+            self.assertEqual(len(recoveries), 2)
+            second_recovery = next(
+                batch for batch in recoveries if batch["recovery_attempt"] == 2
+            )
+            self.assertEqual(second_recovery["unit_ids"], [repeated_id])
+            self.assertEqual(second_recovery["status"], "prepared")
+
+            second_recovery.update(
+                {"status": "collected_with_failures", "batch_id": "batches/recovery-two"}
+            )
+            repeated_job = next(job for job in second["jobs"] if job["unit_id"] == repeated_id)
+            repeated_job.update(
+                {"status": "failed", "last_error": "third provider item failure"}
+            )
+            atomic_json(root / "RUN.json", second)
+            with self.assertRaisesRegex(Exception, "attempt ceiling"):
+                prepare_failed_unit_recovery(root)
+
 
 if __name__ == "__main__":
     unittest.main()

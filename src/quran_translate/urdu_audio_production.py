@@ -938,22 +938,30 @@ def prepare_failed_unit_recovery(
     """Prepare one idempotent Batch retry containing only failed provider items."""
     state = _read_object(root / "RUN.json")
     existing = [batch for batch in state["batches"] if batch.get("failed_unit_recovery")]
-    if len(existing) > 1:
-        raise UrduAudioProductionError("Multiple failed-unit recovery batches exist")
-    recovery = existing[0] if existing else None
-    if recovery and (recovery["status"] != "prepared" or recovery.get("batch_id")):
-        outstanding = [job for job in state["jobs"] if job["status"] == "failed"]
-        if outstanding:
-            raise UrduAudioProductionError(
-                "New failures appeared after the recovery batch was submitted"
-            )
-        return status(root)
+    prepared_recoveries = [
+        batch
+        for batch in existing
+        if batch["status"] == "prepared" and not batch.get("batch_id")
+    ]
+    if len(prepared_recoveries) > 1:
+        raise UrduAudioProductionError("Multiple prepared failed-unit recoveries exist")
+    recovery = prepared_recoveries[0] if prepared_recoveries else None
 
     jobs = {job["unit_id"]: job for job in state["jobs"]}
     failed_ids = [job["unit_id"] for job in state["jobs"] if job["status"] == "failed"]
     target_ids = list(dict.fromkeys((recovery or {}).get("unit_ids", []) + failed_ids))
     if not target_ids:
         raise UrduAudioProductionError("No failed synthesis units need recovery")
+    exhausted = []
+    for unit_id in failed_ids:
+        job = jobs[unit_id]
+        attempts = len(job.get("failure_history", [])) + 1
+        if attempts >= 3:
+            exhausted.append(unit_id)
+    if exhausted:
+        raise UrduAudioProductionError(
+            "Failed-unit attempt ceiling reached: " + ", ".join(exhausted)
+        )
 
     source_batches = []
     for batch in state["batches"]:
@@ -977,7 +985,9 @@ def prepare_failed_unit_recovery(
 
     attempt = int((recovery or {}).get("recovery_attempt") or 0)
     if not recovery:
-        attempt = int(state.get("failed_unit_recovery_attempts", 0)) + 1
+        attempt = max(
+            [int(batch.get("recovery_attempt") or 0) for batch in existing] or [0]
+        ) + 1
     input_path = (
         Path(recovery["input_path"])
         if recovery
@@ -1039,16 +1049,19 @@ def prepare_failed_unit_recovery(
     state["failed_unit_recovery_attempts"] = attempt
     state["status"] = "failed_unit_recovery_prepared"
     _save_state(root, state)
-    atomic_json(
-        root / "FAILED_UNIT_RECOVERY_TARGETS.json",
-        {
-            "attempt": attempt,
-            "unit_ids": target_ids,
-            "source_shards": source_batches,
-            "input_path": str(input_path),
-            "input_sha256": text_sha256(text),
-        },
-    )
+    target_record = {
+        "attempt": attempt,
+        "unit_ids": target_ids,
+        "source_shards": source_batches,
+        "input_path": str(input_path),
+        "input_sha256": text_sha256(text),
+    }
+    latest_targets = root / "FAILED_UNIT_RECOVERY_TARGETS.json"
+    first_targets = root / "FAILED_UNIT_RECOVERY_TARGETS-001.json"
+    if attempt > 1 and latest_targets.exists() and not first_targets.exists():
+        shutil.copy2(latest_targets, first_targets)
+    atomic_json(root / f"FAILED_UNIT_RECOVERY_TARGETS-{attempt:03d}.json", target_record)
+    atomic_json(latest_targets, target_record)
     return status(root)
 
 

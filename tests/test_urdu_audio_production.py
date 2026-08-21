@@ -17,6 +17,7 @@ from quran_translate.urdu_audio_production import (
     _request_line,
     _speech_ayah,
     prepare,
+    prepare_failed_unit_recovery,
     resume_quota_wave,
 )
 from quran_translate.production_packets import atomic_json
@@ -116,6 +117,69 @@ class UrduAudioProductionTests(unittest.TestCase):
             self.assertEqual(len(recovered["failure_history"]), 1)
             self.assertEqual(updated["quota_recovery_waves"], 1)
             run_mock.assert_called_once_with(root, poll_seconds=1)
+
+    def test_failed_unit_recovery_is_targeted_preserved_and_idempotent(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = prepare(root)
+            source = state["batches"][0]
+            failed_ids = source["unit_ids"][:2]
+            source.update(
+                {
+                    "status": "collection_blocked",
+                    "batch_id": "batches/source",
+                    "last_error": f"Failed units: {', '.join(failed_ids)}",
+                }
+            )
+            jobs = {job["unit_id"]: job for job in state["jobs"]}
+            for unit_id in failed_ids:
+                jobs[unit_id].update(
+                    {"status": "failed", "last_error": "provider item failed"}
+                )
+            atomic_json(root / "RUN.json", state)
+
+            prepare_failed_unit_recovery(root)
+            updated = json.loads((root / "RUN.json").read_text())
+            recovery = next(
+                batch for batch in updated["batches"] if batch.get("failed_unit_recovery")
+            )
+            self.assertEqual(recovery["unit_ids"], failed_ids)
+            self.assertEqual(recovery["status"], "prepared")
+            self.assertEqual(updated["batches"][0]["status"], "collected_with_failures")
+            updated_jobs = {job["unit_id"]: job for job in updated["jobs"]}
+            for unit_id in failed_ids:
+                self.assertEqual(updated_jobs[unit_id]["status"], "pending")
+                self.assertEqual(len(updated_jobs[unit_id]["failure_history"]), 1)
+
+            later_source = next(
+                batch
+                for batch in updated["batches"]
+                if not batch.get("failed_unit_recovery") and batch["status"] == "prepared"
+            )
+            later_id = later_source["unit_ids"][0]
+            later_source["status"] = "collected_with_failures"
+            updated_jobs[later_id].update(
+                {"status": "failed", "last_error": "later provider item failed"}
+            )
+            atomic_json(root / "RUN.json", updated)
+
+            prepare_failed_unit_recovery(root)
+            merged = json.loads((root / "RUN.json").read_text())
+            merged_recovery = next(
+                batch for batch in merged["batches"] if batch.get("failed_unit_recovery")
+            )
+            self.assertEqual(merged_recovery["unit_ids"], failed_ids + [later_id])
+            self.assertEqual(
+                next(job for job in merged["jobs"] if job["unit_id"] == later_id)["status"],
+                "pending",
+            )
+
+            prepare_failed_unit_recovery(root)
+            unchanged = json.loads((root / "RUN.json").read_text())
+            self.assertEqual(
+                sum(bool(batch.get("failed_unit_recovery")) for batch in unchanged["batches"]),
+                1,
+            )
 
 
 if __name__ == "__main__":

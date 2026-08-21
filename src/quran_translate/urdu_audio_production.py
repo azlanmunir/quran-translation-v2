@@ -921,14 +921,135 @@ def _collect_batch(client: Any, root: Path, state: dict[str, Any], batch: dict[s
     batch["result_file_name"] = file_name
     batch["result_path"] = str(result_path)
     batch["result_sha256"] = file_sha256(result_path)
-    batch["status"] = "collected" if not failures else "collection_blocked"
+    batch["status"] = "collected" if not failures else "collected_with_failures"
     batch["collected_at"] = utc_now()
     if failures:
         batch["last_error"] = f"Failed units: {', '.join(failures)}"
-        state["status"] = "blocked"
+        state["status"] = "failed_unit_recovery_needed"
     _save_state(root, state)
-    if failures:
-        raise UrduAudioProductionError(batch["last_error"])
+
+
+COLLECTED_BATCH_STATES = {"collected", "collected_with_failures"}
+
+
+def prepare_failed_unit_recovery(
+    root: Path = PRODUCTION_ROOT,
+) -> dict[str, Any]:
+    """Prepare one idempotent Batch retry containing only failed provider items."""
+    state = _read_object(root / "RUN.json")
+    existing = [batch for batch in state["batches"] if batch.get("failed_unit_recovery")]
+    if len(existing) > 1:
+        raise UrduAudioProductionError("Multiple failed-unit recovery batches exist")
+    recovery = existing[0] if existing else None
+    if recovery and (recovery["status"] != "prepared" or recovery.get("batch_id")):
+        outstanding = [job for job in state["jobs"] if job["status"] == "failed"]
+        if outstanding:
+            raise UrduAudioProductionError(
+                "New failures appeared after the recovery batch was submitted"
+            )
+        return status(root)
+
+    jobs = {job["unit_id"]: job for job in state["jobs"]}
+    failed_ids = [job["unit_id"] for job in state["jobs"] if job["status"] == "failed"]
+    target_ids = list(dict.fromkeys((recovery or {}).get("unit_ids", []) + failed_ids))
+    if not target_ids:
+        raise UrduAudioProductionError("No failed synthesis units need recovery")
+
+    source_batches = []
+    for batch in state["batches"]:
+        if batch.get("failed_unit_recovery"):
+            continue
+        affected = [unit_id for unit_id in batch["unit_ids"] if unit_id in target_ids]
+        if not affected:
+            continue
+        if batch["status"] == "collection_blocked":
+            batch["status"] = "collected_with_failures"
+        if batch["status"] != "collected_with_failures":
+            raise UrduAudioProductionError(
+                f"Failed units belong to uncollected shard {batch['shard']}"
+            )
+        source_batches.append(batch["shard"])
+
+    units = {unit["unit_id"]: unit for unit in _read_json(root / "UNITS.json")}
+    missing = [unit_id for unit_id in target_ids if unit_id not in units]
+    if missing:
+        raise UrduAudioProductionError(f"Recovery units missing from manifest: {missing}")
+
+    attempt = int((recovery or {}).get("recovery_attempt") or 0)
+    if not recovery:
+        attempt = int(state.get("failed_unit_recovery_attempts", 0)) + 1
+    input_path = (
+        Path(recovery["input_path"])
+        if recovery
+        else root / "jobs" / f"failed-unit-recovery-{attempt:03d}.jsonl"
+    )
+    text = "\n".join(_request_line(units[unit_id]) for unit_id in target_ids) + "\n"
+    atomic_text(input_path, text)
+    if recovery:
+        recovery.update(
+            {
+                "input_sha256": text_sha256(text),
+                "unit_ids": target_ids,
+                "characters": sum(int(units[unit_id]["characters"]) for unit_id in target_ids),
+                "source_shards": source_batches,
+            }
+        )
+    else:
+        shard = max(int(batch["shard"]) for batch in state["batches"]) + 1
+        recovery = {
+            "shard": shard,
+            "canary": False,
+            "status": "prepared",
+            "input_path": str(input_path),
+            "input_sha256": text_sha256(text),
+            "unit_ids": target_ids,
+            "characters": sum(int(units[unit_id]["characters"]) for unit_id in target_ids),
+            "uploaded_file_name": None,
+            "batch_id": None,
+            "last_error": None,
+            "failed_unit_recovery": True,
+            "recovery_attempt": attempt,
+            "source_shards": source_batches,
+        }
+
+    for unit_id in target_ids:
+        job = jobs[unit_id]
+        if job["status"] == "failed":
+            job.setdefault("failure_history", []).append(
+                {
+                    "status": "failed",
+                    "error": job.get("last_error"),
+                    "preserved_at": utc_now(),
+                    "source_shards": source_batches,
+                }
+            )
+        job["status"] = "pending"
+        job["last_error"] = None
+
+    if recovery not in state["batches"]:
+        insertion = next(
+            (
+                index
+                for index, batch in enumerate(state["batches"])
+                if batch["status"] in {"submission_blocked", "prepared"}
+            ),
+            len(state["batches"]),
+        )
+        state["batches"].insert(insertion, recovery)
+    state["failed_unit_recovery_attempts"] = attempt
+    state["status"] = "failed_unit_recovery_prepared"
+    _save_state(root, state)
+    atomic_json(
+        root / "FAILED_UNIT_RECOVERY_TARGETS.json",
+        {
+            "attempt": attempt,
+            "unit_ids": target_ids,
+            "source_shards": source_batches,
+            "input_path": str(input_path),
+            "input_sha256": text_sha256(text),
+        },
+    )
+    return status(root)
 
 
 def status(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
@@ -984,7 +1105,7 @@ def collect_submitted(
     while True:
         active = False
         for batch in state["batches"]:
-            if not batch.get("batch_id") or batch["status"] == "collected":
+            if not batch.get("batch_id") or batch["status"] in COLLECTED_BATCH_STATES:
                 continue
             if batch["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
                 _collect_batch(client, root, state, batch)
@@ -1022,7 +1143,7 @@ def resume_quota_wave(
     active = [
         batch
         for batch in state["batches"]
-        if batch.get("batch_id") and batch["status"] != "collected"
+        if batch.get("batch_id") and batch["status"] not in COLLECTED_BATCH_STATES
     ]
     if active:
         raise UrduAudioProductionError("Collect all accepted Batch jobs before quota recovery")
@@ -1106,7 +1227,7 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
     while True:
         active = False
         for batch in state["batches"][first_full_batch:]:
-            if batch["status"] in {"collected", "collection_blocked"}:
+            if batch["status"] in COLLECTED_BATCH_STATES:
                 continue
             if batch["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
                 _collect_batch(client, root, state, batch)
@@ -1118,7 +1239,7 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
                 raise UrduAudioProductionError(batch["last_error"])
             _poll_batch(client, root, state, batch)
             active = True
-        if all(batch["status"] == "collected" for batch in state["batches"]):
+        if all(batch["status"] in COLLECTED_BATCH_STATES for batch in state["batches"]):
             break
         if active:
             time.sleep(poll_seconds)
@@ -1142,7 +1263,13 @@ def main() -> None:
     parser.add_argument(
         "action",
         choices=(
-            "prepare", "status", "run", "collect-submitted", "resume-quota-wave", "assemble"
+            "prepare",
+            "status",
+            "run",
+            "collect-submitted",
+            "prepare-failed-unit-recovery",
+            "resume-quota-wave",
+            "assemble",
         ),
         nargs="?",
         default="status",
@@ -1158,6 +1285,8 @@ def main() -> None:
         result = assemble(decode_check=not args.skip_decode_check)
     elif args.action == "collect-submitted":
         result = collect_submitted(poll_seconds=args.poll_seconds)
+    elif args.action == "prepare-failed-unit-recovery":
+        result = prepare_failed_unit_recovery()
     elif args.action == "resume-quota-wave":
         result = resume_quota_wave(poll_seconds=args.poll_seconds)
     else:

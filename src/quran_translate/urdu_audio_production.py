@@ -48,6 +48,10 @@ HARD_ESTIMATED_BATCH_COST_USD = 20.0
 SHARD_TARGET_CHARACTERS = 30_000
 FRAGMENT_TARGET_CHARACTERS = 900
 FRAGMENT_MAX_AYAHS = 6
+SMALLER_FRAGMENT_LEVELS = {
+    2: {"target_characters": 400, "max_ayahs": 3, "prefix": "micro"},
+    3: {"target_characters": 180, "max_ayahs": 1, "prefix": "nano"},
+}
 POLL_SECONDS = 30
 TERMINAL_STATES = {
     "JOB_STATE_SUCCEEDED",
@@ -1034,6 +1038,82 @@ def _make_fragment_shards(
     return shards
 
 
+def _split_failed_fragment(
+    fragment: dict[str, Any],
+    *,
+    target_characters: int,
+    fragment_prefix: str,
+) -> list[dict[str, Any]]:
+    """Split a failed leaf by ayah first, then by words when one ayah remains."""
+    refs = list(fragment["refs"])
+    speech_lines = str(fragment["speech_text"]).splitlines()
+    if not refs or len(refs) != len(speech_lines):
+        raise UrduAudioProductionError(
+            f"Failed fragment lost ayah alignment: {fragment['fragment_id']}"
+        )
+    pieces: list[tuple[str, str]] = []
+    for ref, line in zip(refs, speech_lines, strict=True):
+        words = line.split()
+        if not words:
+            raise UrduAudioProductionError(
+                f"Failed fragment contains an empty ayah: {fragment['fragment_id']}"
+            )
+        chunks: list[list[str]] = []
+        current: list[str] = []
+        current_chars = 0
+        for word in words:
+            added = len(word) + (1 if current else 0)
+            if current and current_chars + added > target_characters:
+                chunks.append(current)
+                current = []
+                current_chars = 0
+                added = len(word)
+            current.append(word)
+            current_chars += added
+        if current:
+            chunks.append(current)
+        if len(refs) == 1 and len(chunks) == 1:
+            if len(words) < 2:
+                raise UrduAudioProductionError(
+                    f"Failed fragment cannot be reduced safely: {fragment['fragment_id']}"
+                )
+            midpoint = math.ceil(len(words) / 2)
+            chunks = [words[:midpoint], words[midpoint:]]
+        pieces.extend((ref, " ".join(chunk)) for chunk in chunks)
+
+    children = []
+    for index, (ref, speech_text) in enumerate(pieces, start=1):
+        fragment_id = f"{fragment_prefix}-{fragment['fragment_id']}-{index:02d}"
+        children.append(
+            {
+                "fragment_id": fragment_id,
+                "fragment_index": index,
+                "original_unit_id": fragment["original_unit_id"],
+                "refs": [ref],
+                "text": speech_text,
+                "speech_text": speech_text,
+                "characters": len(speech_text),
+                "speech_characters": len(speech_text),
+                "text_sha256": text_sha256(speech_text),
+                "speech_text_sha256": text_sha256(speech_text),
+                "status": "pending",
+                "last_error": None,
+                "speech_only_fragment": True,
+            }
+        )
+    if len(children) < 2:
+        raise UrduAudioProductionError(
+            f"Failed fragment was not reduced: {fragment['fragment_id']}"
+        )
+    source_words = str(fragment["speech_text"]).split()
+    child_words = [word for child in children for word in child["speech_text"].split()]
+    if child_words != source_words:
+        raise UrduAudioProductionError(
+            f"Failed fragment word coverage changed: {fragment['fragment_id']}"
+        )
+    return children
+
+
 def prepare_fragment_recovery(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
     """Freeze ayah-boundary fragments for units exhausted by full-unit retries."""
     state = _read_object(root / "RUN.json")
@@ -1236,7 +1316,8 @@ def prepare_smaller_fragment_recovery(
     recovery_path = root / "FRAGMENT_RECOVERY.json"
     recovery = _read_object(recovery_path)
     level = int(recovery.get("recovery_level", 1)) + 1
-    if level > 2:
+    settings = SMALLER_FRAGMENT_LEVELS.get(level)
+    if not settings:
         raise UrduAudioProductionError("Smaller-fragment recovery ceiling reached")
 
     failed_jobs = [job for job in state["jobs"] if job["status"] == "failed"]
@@ -1263,19 +1344,11 @@ def prepare_smaller_fragment_recovery(
                 parent_sequence = list(
                     leaf.get("sequence_key", [int(leaf["fragment_index"]), 0])
                 )
-                children = _fragment_unit(
-                    {
-                        **leaf,
-                        "unit_id": leaf["fragment_id"],
-                    },
-                    target_characters=400,
-                    max_ayahs=3,
-                    fragment_prefix="micro",
+                children = _split_failed_fragment(
+                    leaf,
+                    target_characters=int(settings["target_characters"]),
+                    fragment_prefix=str(settings["prefix"]),
                 )
-                if len(children) < 2:
-                    raise UrduAudioProductionError(
-                        f"Failed fragment was not reduced: {leaf['fragment_id']}"
-                    )
                 leaf.setdefault("failure_history", []).append(
                     {
                         "status": "failed",
@@ -1288,14 +1361,14 @@ def prepare_smaller_fragment_recovery(
                 for child_index, child in enumerate(children, start=1):
                     child["original_unit_id"] = unit_id
                     child["replacement_for"] = leaf["fragment_id"]
-                    child["sequence_key"] = [parent_sequence[0], child_index]
+                    child["sequence_key"] = parent_sequence + [child_index]
                     new_fragments.append(child)
         else:
             children = _fragment_unit(
                 units[unit_id],
-                target_characters=400,
-                max_ayahs=3,
-                fragment_prefix="micro",
+                target_characters=int(settings["target_characters"]),
+                max_ayahs=int(settings["max_ayahs"]),
+                fragment_prefix=str(settings["prefix"]),
             )
             for child_index, child in enumerate(children, start=1):
                 child["original_unit_id"] = unit_id
@@ -1318,8 +1391,8 @@ def prepare_smaller_fragment_recovery(
             "created_at": utc_now(),
             "original_unit_ids": [job["unit_id"] for job in failed_jobs],
             "fragment_ids": [item["fragment_id"] for item in new_fragments],
-            "target_characters": 400,
-            "max_ayahs": 3,
+            "target_characters": settings["target_characters"],
+            "max_ayahs": settings["max_ayahs"],
         }
     )
     atomic_json(recovery_path, recovery)
@@ -1430,7 +1503,13 @@ def _collect_fragment_batch(
                 or probe["channels"] != 1
             ):
                 raise UrduAudioProductionError(f"Audio contract failed: {probe}")
-            if not 0.04 <= ratio <= 0.22:
+            if int(fragment.get("recovery_level", 1)) >= 3:
+                minimum = max(0.3, int(fragment["characters"]) * 0.02)
+                maximum = max(30.0, int(fragment["characters"]) * 0.30)
+                plausible = minimum <= probe["duration_seconds"] <= maximum
+            else:
+                plausible = 0.04 <= ratio <= 0.22
+            if not plausible:
                 raise UrduAudioProductionError(
                     f"Implausible duration {probe['duration_seconds']}s for {fragment_id}"
                 )

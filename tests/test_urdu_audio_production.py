@@ -17,6 +17,7 @@ from quran_translate.urdu_audio_production import (
     _make_shards,
     _request_line,
     _speech_ayah,
+    _split_failed_fragment,
     prepare,
     prepare_failed_unit_recovery,
     prepare_fragment_recovery,
@@ -242,6 +243,27 @@ class UrduAudioProductionTests(unittest.TestCase):
             len(fragments),
         )
 
+    def test_failed_single_ayah_fragment_splits_without_losing_words(self) -> None:
+        fragment = {
+            "fragment_id": "micro-s001-01",
+            "fragment_index": 1,
+            "original_unit_id": "s001_001_007",
+            "refs": ["1:1"],
+            "speech_text": "اللہ کے نام سے جو بے حد رحم والا نہایت مہربان ہے۔",
+            "text": "اللہ کے نام سے جو بے حد رحم والا نہایت مہربان ہے۔",
+        }
+        children = _split_failed_fragment(
+            fragment,
+            target_characters=180,
+            fragment_prefix="nano",
+        )
+        self.assertEqual(len(children), 2)
+        self.assertTrue(all(child["refs"] == ["1:1"] for child in children))
+        self.assertEqual(
+            [word for child in children for word in child["speech_text"].split()],
+            fragment["speech_text"].split(),
+        )
+
     def test_fragment_recovery_is_targeted_frozen_and_idempotent(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -353,6 +375,46 @@ class UrduAudioProductionTests(unittest.TestCase):
             jobs = {job["unit_id"]: job for job in updated["jobs"]}
             self.assertEqual(jobs[first_id]["status"], "pending")
             self.assertEqual(jobs[second_id]["status"], "pending")
+
+            level_two = [
+                fragment
+                for fragment in smaller["fragments"]
+                if fragment.get("recovery_level") == 2
+                and fragment["original_unit_id"] == first_id
+            ]
+            for fragment in level_two:
+                fragment["status"] = "complete"
+            failed_leaf = level_two[0]
+            failed_leaf.update({"status": "failed", "last_error": "no audio"})
+            for job in updated["jobs"]:
+                if job["unit_id"] == first_id:
+                    job.update({"status": "failed", "last_error": "fragment failed"})
+                elif job["unit_id"] == second_id:
+                    job["status"] = "complete"
+            for batch in updated["batches"]:
+                batch["status"] = "collected"
+            atomic_json(root / "RUN.json", updated)
+            atomic_json(root / "FRAGMENT_RECOVERY.json", smaller)
+
+            prepare_smaller_fragment_recovery(root)
+            level_three = json.loads((root / "FRAGMENT_RECOVERY.json").read_text())
+            replaced = next(
+                fragment
+                for fragment in level_three["fragments"]
+                if fragment["fragment_id"] == failed_leaf["fragment_id"]
+            )
+            nano = [
+                fragment
+                for fragment in level_three["fragments"]
+                if fragment.get("recovery_level") == 3
+            ]
+            self.assertEqual(replaced["status"], "superseded")
+            self.assertGreaterEqual(len(nano), 2)
+            self.assertTrue(all(fragment["status"] == "pending" for fragment in nano))
+            self.assertEqual(
+                [word for fragment in nano for word in fragment["speech_text"].split()],
+                failed_leaf["speech_text"].split(),
+            )
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from quran_translate.urdu_audio_production import (
     prepare,
     prepare_failed_unit_recovery,
     prepare_fragment_recovery,
+    prepare_smaller_fragment_recovery,
     resume_quota_wave,
 )
 from quran_translate.production_packets import atomic_json
@@ -285,6 +286,73 @@ class UrduAudioProductionTests(unittest.TestCase):
                 sum(bool(batch.get("fragment_recovery")) for batch in unchanged["batches"]),
                 len(fragment_batches),
             )
+
+    def test_smaller_fragment_recovery_reuses_success_and_splits_failures(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = prepare(root)
+            first_id = state["batches"][0]["unit_ids"][0]
+            first_job = next(job for job in state["jobs"] if job["unit_id"] == first_id)
+            first_job.update({"status": "failed", "last_error": "full unit failed"})
+            state["batches"][0]["status"] = "collected_with_failures"
+            atomic_json(root / "RUN.json", state)
+            prepare_fragment_recovery(root)
+
+            state = json.loads((root / "RUN.json").read_text())
+            recovery = json.loads((root / "FRAGMENT_RECOVERY.json").read_text())
+            first_fragments = [
+                fragment
+                for fragment in recovery["fragments"]
+                if fragment["original_unit_id"] == first_id
+            ]
+            first_fragments[0]["status"] = "complete"
+            for fragment in first_fragments[1:]:
+                fragment.update({"status": "failed", "last_error": "no audio"})
+            second_id = next(
+                job["unit_id"]
+                for job in state["jobs"]
+                if job["unit_id"] != first_id and job["status"] == "pending"
+            )
+            for job in state["jobs"]:
+                if job["unit_id"] in {first_id, second_id}:
+                    job.update({"status": "failed", "last_error": "provider failed"})
+            for batch in state["batches"]:
+                batch["status"] = "collected"
+            atomic_json(root / "RUN.json", state)
+            atomic_json(root / "FRAGMENT_RECOVERY.json", recovery)
+
+            prepare_smaller_fragment_recovery(root)
+            updated = json.loads((root / "RUN.json").read_text())
+            smaller = json.loads((root / "FRAGMENT_RECOVERY.json").read_text())
+            original_first = [
+                fragment
+                for fragment in smaller["fragments"]
+                if fragment["fragment_id"] in {
+                    item["fragment_id"] for item in first_fragments
+                }
+            ]
+            self.assertEqual(original_first[0]["status"], "complete")
+            self.assertTrue(
+                all(item["status"] == "superseded" for item in original_first[1:])
+            )
+            micro = [
+                fragment
+                for fragment in smaller["fragments"]
+                if fragment.get("recovery_level") == 2
+            ]
+            self.assertTrue(micro)
+            self.assertTrue(all(fragment["status"] == "pending" for fragment in micro))
+            self.assertTrue(all(len(fragment["refs"]) <= 3 for fragment in micro))
+            self.assertEqual(
+                {
+                    fragment["original_unit_id"]
+                    for fragment in micro
+                },
+                {first_id, second_id},
+            )
+            jobs = {job["unit_id"]: job for job in updated["jobs"]}
+            self.assertEqual(jobs[first_id]["status"], "pending")
+            self.assertEqual(jobs[second_id]["status"], "pending")
 
 
 if __name__ == "__main__":

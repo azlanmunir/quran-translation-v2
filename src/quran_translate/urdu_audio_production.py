@@ -954,7 +954,13 @@ def _collect_batch(client: Any, root: Path, state: dict[str, Any], batch: dict[s
     _save_state(root, state)
 
 
-def _fragment_unit(unit: dict[str, Any]) -> list[dict[str, Any]]:
+def _fragment_unit(
+    unit: dict[str, Any],
+    *,
+    target_characters: int = FRAGMENT_TARGET_CHARACTERS,
+    max_ayahs: int = FRAGMENT_MAX_AYAHS,
+    fragment_prefix: str = "frag",
+) -> list[dict[str, Any]]:
     refs = list(unit["refs"])
     speech_lines = str(unit["speech_text"]).splitlines()
     text_lines = str(unit["text"]).splitlines()
@@ -968,8 +974,8 @@ def _fragment_unit(unit: dict[str, Any]) -> list[dict[str, Any]]:
     for index, line in enumerate(speech_lines):
         line_chars = len(line) + (1 if current else 0)
         if current and (
-            len(current) >= FRAGMENT_MAX_AYAHS
-            or current_chars + line_chars > FRAGMENT_TARGET_CHARACTERS
+            len(current) >= max_ayahs
+            or current_chars + line_chars > target_characters
         ):
             chunks.append(current)
             current = []
@@ -987,7 +993,7 @@ def _fragment_unit(unit: dict[str, Any]) -> list[dict[str, Any]]:
     for fragment_index, indexes in enumerate(chunks, start=1):
         speech_text = "\n".join(speech_lines[index] for index in indexes)
         text = "\n".join(text_lines[index] for index in indexes)
-        fragment_id = f"frag-{unit['unit_id']}-{fragment_index:02d}"
+        fragment_id = f"{fragment_prefix}-{unit['unit_id']}-{fragment_index:02d}"
         fragments.append(
             {
                 "fragment_id": fragment_id,
@@ -1148,8 +1154,12 @@ def _stitch_fragment_unit(
             fragment
             for fragment in recovery["fragments"]
             if fragment["original_unit_id"] == unit_id
+            and fragment["status"] != "superseded"
         ],
-        key=lambda item: int(item["fragment_index"]),
+        key=lambda item: tuple(
+            int(value)
+            for value in item.get("sequence_key", [item["fragment_index"], 0])
+        ),
     )
     job = next(job for job in state["jobs"] if job["unit_id"] == unit_id)
     failed = [item for item in fragments if item["status"] == "failed"]
@@ -1207,6 +1217,164 @@ def _stitch_fragment_unit(
             "last_error": None,
         }
     )
+
+
+def prepare_smaller_fragment_recovery(
+    root: Path = PRODUCTION_ROOT,
+) -> dict[str, Any]:
+    """Split failed fragment leaves and newly failed units into smaller requests."""
+    state = _read_object(root / "RUN.json")
+    active = [
+        batch
+        for batch in state["batches"]
+        if batch["status"] not in COLLECTED_BATCH_STATES
+    ]
+    if active:
+        raise UrduAudioProductionError(
+            "All prior batches must be collected before smaller-fragment recovery"
+        )
+    recovery_path = root / "FRAGMENT_RECOVERY.json"
+    recovery = _read_object(recovery_path)
+    level = int(recovery.get("recovery_level", 1)) + 1
+    if level > 2:
+        raise UrduAudioProductionError("Smaller-fragment recovery ceiling reached")
+
+    failed_jobs = [job for job in state["jobs"] if job["status"] == "failed"]
+    if not failed_jobs:
+        raise UrduAudioProductionError("No failed synthesis units need smaller fragments")
+    units = {unit["unit_id"]: unit for unit in _read_json(root / "UNITS.json")}
+    existing_by_unit: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for fragment in recovery["fragments"]:
+        existing_by_unit[str(fragment["original_unit_id"])].append(fragment)
+
+    new_fragments: list[dict[str, Any]] = []
+    fragment_root = root / "fragment-recovery"
+    for job in failed_jobs:
+        unit_id = str(job["unit_id"])
+        existing = existing_by_unit.get(unit_id, [])
+        if existing:
+            leaves = [item for item in existing if item["status"] != "superseded"]
+            failed_leaves = [item for item in leaves if item["status"] == "failed"]
+            if not failed_leaves:
+                raise UrduAudioProductionError(
+                    f"Failed canonical unit has no failed fragment leaf: {unit_id}"
+                )
+            for leaf in failed_leaves:
+                parent_sequence = list(
+                    leaf.get("sequence_key", [int(leaf["fragment_index"]), 0])
+                )
+                children = _fragment_unit(
+                    {
+                        **leaf,
+                        "unit_id": leaf["fragment_id"],
+                    },
+                    target_characters=400,
+                    max_ayahs=3,
+                    fragment_prefix="micro",
+                )
+                if len(children) < 2:
+                    raise UrduAudioProductionError(
+                        f"Failed fragment was not reduced: {leaf['fragment_id']}"
+                    )
+                leaf.setdefault("failure_history", []).append(
+                    {
+                        "status": "failed",
+                        "error": leaf.get("last_error"),
+                        "preserved_at": utc_now(),
+                    }
+                )
+                leaf["status"] = "superseded"
+                leaf["superseded_at"] = utc_now()
+                for child_index, child in enumerate(children, start=1):
+                    child["original_unit_id"] = unit_id
+                    child["replacement_for"] = leaf["fragment_id"]
+                    child["sequence_key"] = [parent_sequence[0], child_index]
+                    new_fragments.append(child)
+        else:
+            children = _fragment_unit(
+                units[unit_id],
+                target_characters=400,
+                max_ayahs=3,
+                fragment_prefix="micro",
+            )
+            for child_index, child in enumerate(children, start=1):
+                child["original_unit_id"] = unit_id
+                child["sequence_key"] = [child_index, 0]
+                new_fragments.append(child)
+
+    for fragment in new_fragments:
+        fragment["recovery_level"] = level
+        fragment["raw_path"] = str(
+            fragment_root / "raw" / f"{fragment['fragment_id']}.wav"
+        )
+        fragment["normalized_path"] = str(
+            fragment_root / "clips" / f"{fragment['fragment_id']}.mp3"
+        )
+    recovery["fragments"].extend(new_fragments)
+    recovery["recovery_level"] = level
+    recovery.setdefault("levels", []).append(
+        {
+            "level": level,
+            "created_at": utc_now(),
+            "original_unit_ids": [job["unit_id"] for job in failed_jobs],
+            "fragment_ids": [item["fragment_id"] for item in new_fragments],
+            "target_characters": 400,
+            "max_ayahs": 3,
+        }
+    )
+    atomic_json(recovery_path, recovery)
+
+    next_shard = max(int(batch["shard"]) for batch in state["batches"]) + 1
+    batches = []
+    for offset, shard in enumerate(_make_fragment_shards(new_fragments)):
+        shard_number = next_shard + offset
+        input_path = root / "jobs" / f"fragment-recovery-l{level}-{shard_number:03d}.jsonl"
+        text = "\n".join(
+            _request_line(
+                {"unit_id": item["fragment_id"], "speech_text": item["speech_text"]}
+            )
+            for item in shard
+        ) + "\n"
+        atomic_text(input_path, text)
+        batches.append(
+            {
+                "shard": shard_number,
+                "canary": False,
+                "status": "prepared",
+                "input_path": str(input_path),
+                "input_sha256": text_sha256(text),
+                "unit_ids": [item["fragment_id"] for item in shard],
+                "original_unit_ids": list(
+                    dict.fromkeys(item["original_unit_id"] for item in shard)
+                ),
+                "characters": sum(int(item["speech_characters"]) for item in shard),
+                "uploaded_file_name": None,
+                "batch_id": None,
+                "last_error": None,
+                "fragment_recovery": True,
+                "fragment_recovery_level": level,
+            }
+        )
+    state["batches"].extend(batches)
+    for job in failed_jobs:
+        job.setdefault("failure_history", []).append(
+            {
+                "status": "failed",
+                "error": job.get("last_error"),
+                "preserved_at": utc_now(),
+                "recovery": f"fragment_recovery_level_{level}",
+            }
+        )
+        job["status"] = "pending"
+        job["last_error"] = None
+        job["fragment_recovery"] = True
+    state["status"] = "smaller_fragment_recovery_prepared"
+    _save_state(root, state)
+    atomic_json(
+        root / f"FRAGMENT_RECOVERY_LEVEL_{level}_TARGETS.json",
+        recovery["levels"][-1] | {"batch_shards": [batch["shard"] for batch in batches]},
+    )
+    return status(root)
 
 
 def _collect_fragment_batch(
@@ -1679,6 +1847,7 @@ def main() -> None:
             "collect-submitted",
             "prepare-failed-unit-recovery",
             "prepare-fragment-recovery",
+            "prepare-smaller-fragment-recovery",
             "resume-quota-wave",
             "assemble",
         ),
@@ -1700,6 +1869,8 @@ def main() -> None:
         result = prepare_failed_unit_recovery()
     elif args.action == "prepare-fragment-recovery":
         result = prepare_fragment_recovery()
+    elif args.action == "prepare-smaller-fragment-recovery":
+        result = prepare_smaller_fragment_recovery()
     elif args.action == "resume-quota-wave":
         result = resume_quota_wave(poll_seconds=args.poll_seconds)
     else:

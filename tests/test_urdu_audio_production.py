@@ -13,11 +13,13 @@ from quran_translate.urdu_audio_production import (
     VOICE_ID,
     _build_units,
     _generation_config,
+    _fragment_unit,
     _make_shards,
     _request_line,
     _speech_ayah,
     prepare,
     prepare_failed_unit_recovery,
+    prepare_fragment_recovery,
     resume_quota_wave,
 )
 from quran_translate.production_packets import atomic_json
@@ -218,6 +220,71 @@ class UrduAudioProductionTests(unittest.TestCase):
             atomic_json(root / "RUN.json", second)
             with self.assertRaisesRegex(Exception, "attempt ceiling"):
                 prepare_failed_unit_recovery(root)
+
+    def test_fragment_unit_preserves_ayah_order_and_reduces_request_size(self) -> None:
+        unit = max(_build_units(), key=lambda item: len(item["refs"]))
+        fragments = _fragment_unit(unit)
+        self.assertGreater(len(fragments), 1)
+        self.assertEqual(
+            [ref for fragment in fragments for ref in fragment["refs"]],
+            unit["refs"],
+        )
+        self.assertEqual(
+            "\n".join(fragment["speech_text"] for fragment in fragments),
+            unit["speech_text"],
+        )
+        self.assertTrue(
+            all(len(fragment["refs"]) < len(unit["refs"]) for fragment in fragments)
+        )
+        self.assertEqual(
+            len({fragment["fragment_id"] for fragment in fragments}),
+            len(fragments),
+        )
+
+    def test_fragment_recovery_is_targeted_frozen_and_idempotent(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = prepare(root)
+            source = state["batches"][0]
+            failed_id = source["unit_ids"][0]
+            source["status"] = "collected_with_failures"
+            failed_job = next(
+                job for job in state["jobs"] if job["unit_id"] == failed_id
+            )
+            failed_job.update({"status": "failed", "last_error": "three attempts failed"})
+            atomic_json(root / "RUN.json", state)
+
+            prepare_fragment_recovery(root)
+            updated = json.loads((root / "RUN.json").read_text())
+            recovery = json.loads((root / "FRAGMENT_RECOVERY.json").read_text())
+            fragment_batches = [
+                batch for batch in updated["batches"] if batch.get("fragment_recovery")
+            ]
+            self.assertEqual(recovery["original_unit_ids"], [failed_id])
+            self.assertTrue(fragment_batches)
+            self.assertEqual(
+                [
+                    fragment["fragment_id"]
+                    for fragment in recovery["fragments"]
+                ],
+                [
+                    fragment_id
+                    for batch in fragment_batches
+                    for fragment_id in batch["unit_ids"]
+                ],
+            )
+            recovered_job = next(
+                job for job in updated["jobs"] if job["unit_id"] == failed_id
+            )
+            self.assertEqual(recovered_job["status"], "pending")
+            self.assertEqual(len(recovered_job["failure_history"]), 1)
+
+            prepare_fragment_recovery(root)
+            unchanged = json.loads((root / "RUN.json").read_text())
+            self.assertEqual(
+                sum(bool(batch.get("fragment_recovery")) for batch in unchanged["batches"]),
+                len(fragment_batches),
+            )
 
 
 if __name__ == "__main__":

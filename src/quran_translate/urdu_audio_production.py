@@ -46,6 +46,8 @@ TRANSLATION_RUN_ROOT = (
 JUZ_BOUNDARIES = DATA_DIR / "evidence" / "juz-boundaries-v1.json"
 HARD_ESTIMATED_BATCH_COST_USD = 20.0
 SHARD_TARGET_CHARACTERS = 30_000
+FRAGMENT_TARGET_CHARACTERS = 900
+FRAGMENT_MAX_AYAHS = 6
 POLL_SECONDS = 30
 TERMINAL_STATES = {
     "JOB_STATE_SUCCEEDED",
@@ -652,6 +654,29 @@ def _concat_mp3(inputs: list[Path], output: Path, *, title: str, track: int | No
         temp.unlink(missing_ok=True)
 
 
+def _concat_wav(inputs: list[Path], output: Path) -> None:
+    if not inputs:
+        raise UrduAudioProductionError(f"No source fragments for {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    concat_path = output.with_name(f".{output.name}.concat.txt")
+    temp = output.with_name(f".{output.name}.tmp.wav")
+    atomic_text(concat_path, "\n".join(_ffconcat_line(path) for path in inputs) + "\n")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "concat", "-safe", "0", "-i", str(concat_path),
+                "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(temp),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        os.replace(temp, output)
+    finally:
+        concat_path.unlink(missing_ok=True)
+        temp.unlink(missing_ok=True)
+
+
 def _decode_check(path: Path) -> None:
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path), "-f", "null", "-"],
@@ -929,6 +954,378 @@ def _collect_batch(client: Any, root: Path, state: dict[str, Any], batch: dict[s
     _save_state(root, state)
 
 
+def _fragment_unit(unit: dict[str, Any]) -> list[dict[str, Any]]:
+    refs = list(unit["refs"])
+    speech_lines = str(unit["speech_text"]).splitlines()
+    text_lines = str(unit["text"]).splitlines()
+    if not refs or len(refs) != len(speech_lines) or len(refs) != len(text_lines):
+        raise UrduAudioProductionError(
+            f"Ayah-line alignment failed for fragment recovery: {unit['unit_id']}"
+        )
+    chunks: list[list[int]] = []
+    current: list[int] = []
+    current_chars = 0
+    for index, line in enumerate(speech_lines):
+        line_chars = len(line) + (1 if current else 0)
+        if current and (
+            len(current) >= FRAGMENT_MAX_AYAHS
+            or current_chars + line_chars > FRAGMENT_TARGET_CHARACTERS
+        ):
+            chunks.append(current)
+            current = []
+            current_chars = 0
+            line_chars = len(line)
+        current.append(index)
+        current_chars += line_chars
+    if current:
+        chunks.append(current)
+    if len(chunks) == 1 and len(refs) > 1:
+        midpoint = math.ceil(len(refs) / 2)
+        chunks = [list(range(0, midpoint)), list(range(midpoint, len(refs)))]
+
+    fragments = []
+    for fragment_index, indexes in enumerate(chunks, start=1):
+        speech_text = "\n".join(speech_lines[index] for index in indexes)
+        text = "\n".join(text_lines[index] for index in indexes)
+        fragment_id = f"frag-{unit['unit_id']}-{fragment_index:02d}"
+        fragments.append(
+            {
+                "fragment_id": fragment_id,
+                "fragment_index": fragment_index,
+                "original_unit_id": unit["unit_id"],
+                "refs": [refs[index] for index in indexes],
+                "text": text,
+                "speech_text": speech_text,
+                "characters": len(text),
+                "speech_characters": len(speech_text),
+                "text_sha256": text_sha256(text),
+                "speech_text_sha256": text_sha256(speech_text),
+                "status": "pending",
+                "last_error": None,
+            }
+        )
+    if [ref for fragment in fragments for ref in fragment["refs"]] != refs:
+        raise UrduAudioProductionError(f"Fragment coverage changed for {unit['unit_id']}")
+    return fragments
+
+
+def _make_fragment_shards(
+    fragments: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    shards: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_chars = 0
+    for fragment in fragments:
+        characters = int(fragment["speech_characters"])
+        if current and current_chars + characters > SHARD_TARGET_CHARACTERS:
+            shards.append(current)
+            current = []
+            current_chars = 0
+        current.append(fragment)
+        current_chars += characters
+    if current:
+        shards.append(current)
+    return shards
+
+
+def prepare_fragment_recovery(root: Path = PRODUCTION_ROOT) -> dict[str, Any]:
+    """Freeze ayah-boundary fragments for units exhausted by full-unit retries."""
+    state = _read_object(root / "RUN.json")
+    recovery_path = root / "FRAGMENT_RECOVERY.json"
+    existing_batches = [
+        batch for batch in state["batches"] if batch.get("fragment_recovery")
+    ]
+    if recovery_path.exists() or existing_batches:
+        if not recovery_path.exists() or not existing_batches:
+            raise UrduAudioProductionError("Fragment recovery artifacts are incomplete")
+        return status(root)
+
+    failed_jobs = [job for job in state["jobs"] if job["status"] == "failed"]
+    if not failed_jobs:
+        raise UrduAudioProductionError("No failed synthesis units need fragment recovery")
+    units = {unit["unit_id"]: unit for unit in _read_json(root / "UNITS.json")}
+    fragments = [
+        fragment
+        for job in failed_jobs
+        for fragment in _fragment_unit(units[job["unit_id"]])
+    ]
+    if any(
+        len(fragment["refs"]) >= len(units[fragment["original_unit_id"]]["refs"])
+        for fragment in fragments
+    ):
+        raise UrduAudioProductionError("Fragment recovery did not reduce every failed unit")
+
+    fragment_root = root / "fragment-recovery"
+    for fragment in fragments:
+        fragment["raw_path"] = str(fragment_root / "raw" / f"{fragment['fragment_id']}.wav")
+        fragment["normalized_path"] = str(
+            fragment_root / "clips" / f"{fragment['fragment_id']}.mp3"
+        )
+    recovery = {
+        "version": "quran-urdu-charon-fragment-recovery-v1",
+        "created_at": utc_now(),
+        "input_fingerprint": state["input_fingerprint"],
+        "original_unit_ids": [job["unit_id"] for job in failed_jobs],
+        "fragment_target_characters": FRAGMENT_TARGET_CHARACTERS,
+        "fragment_max_ayahs": FRAGMENT_MAX_AYAHS,
+        "fragments": fragments,
+    }
+    atomic_json(recovery_path, recovery)
+
+    next_shard = max(int(batch["shard"]) for batch in state["batches"]) + 1
+    batches = []
+    for offset, shard in enumerate(_make_fragment_shards(fragments)):
+        shard_number = next_shard + offset
+        input_path = root / "jobs" / f"fragment-recovery-{shard_number:03d}.jsonl"
+        text = "\n".join(
+            _request_line(
+                {"unit_id": item["fragment_id"], "speech_text": item["speech_text"]}
+            )
+            for item in shard
+        ) + "\n"
+        atomic_text(input_path, text)
+        batches.append(
+            {
+                "shard": shard_number,
+                "canary": False,
+                "status": "prepared",
+                "input_path": str(input_path),
+                "input_sha256": text_sha256(text),
+                "unit_ids": [item["fragment_id"] for item in shard],
+                "original_unit_ids": list(
+                    dict.fromkeys(item["original_unit_id"] for item in shard)
+                ),
+                "characters": sum(int(item["speech_characters"]) for item in shard),
+                "uploaded_file_name": None,
+                "batch_id": None,
+                "last_error": None,
+                "fragment_recovery": True,
+            }
+        )
+
+    insertion = next(
+        (
+            index
+            for index, batch in enumerate(state["batches"])
+            if batch["status"] in {"submission_blocked", "prepared"}
+        ),
+        len(state["batches"]),
+    )
+    state["batches"][insertion:insertion] = batches
+    for job in failed_jobs:
+        job.setdefault("failure_history", []).append(
+            {
+                "status": "failed",
+                "error": job.get("last_error"),
+                "preserved_at": utc_now(),
+                "recovery": "ayah_fragment_recovery",
+            }
+        )
+        job["status"] = "pending"
+        job["last_error"] = None
+        job["fragment_recovery"] = True
+    state["status"] = "fragment_recovery_prepared"
+    _save_state(root, state)
+    atomic_json(
+        root / "FRAGMENT_RECOVERY_TARGETS.json",
+        {
+            "original_unit_ids": recovery["original_unit_ids"],
+            "fragment_ids": [item["fragment_id"] for item in fragments],
+            "batch_shards": [batch["shard"] for batch in batches],
+        },
+    )
+    return status(root)
+
+
+def _stitch_fragment_unit(
+    root: Path,
+    state: dict[str, Any],
+    recovery: dict[str, Any],
+    unit_id: str,
+) -> None:
+    fragments = sorted(
+        [
+            fragment
+            for fragment in recovery["fragments"]
+            if fragment["original_unit_id"] == unit_id
+        ],
+        key=lambda item: int(item["fragment_index"]),
+    )
+    job = next(job for job in state["jobs"] if job["unit_id"] == unit_id)
+    failed = [item for item in fragments if item["status"] == "failed"]
+    if failed:
+        job["status"] = "failed"
+        job["last_error"] = "Failed fragments: " + ", ".join(
+            item["fragment_id"] for item in failed
+        )
+        return
+    if not fragments or any(item["status"] != "complete" for item in fragments):
+        job["status"] = "pending"
+        return
+
+    raw = Path(job["raw_path"])
+    normalized = Path(job["normalized_path"])
+    _concat_wav([Path(item["raw_path"]) for item in fragments], raw)
+    _concat_mp3(
+        [Path(item["normalized_path"]) for item in fragments],
+        normalized,
+        title=unit_id,
+    )
+    _decode_check(normalized)
+    probe = _probe(normalized)
+    units = {unit["unit_id"]: unit for unit in _read_json(root / "UNITS.json")}
+    ratio = probe["duration_seconds"] / max(1, int(units[unit_id]["characters"]))
+    if probe["codec"] != "mp3" or probe["sample_rate"] != 44_100 or probe["channels"] != 1:
+        raise UrduAudioProductionError(f"Stitched audio contract failed: {probe}")
+    if not 0.04 <= ratio <= 0.22:
+        raise UrduAudioProductionError(
+            f"Implausible stitched duration {probe['duration_seconds']}s for {unit_id}"
+        )
+    usage = {
+        "prompt_tokens": sum(
+            int(item["provider_usage"]["prompt_tokens"]) for item in fragments
+        ),
+        "output_tokens": sum(
+            int(item["provider_usage"]["output_tokens"]) for item in fragments
+        ),
+    }
+    job.update(
+        {
+            "status": "complete",
+            "source": "ayah_fragment_recovery",
+            "fragment_ids": [item["fragment_id"] for item in fragments],
+            "provider_batch_ids": list(
+                dict.fromkeys(str(item["provider_batch_id"]) for item in fragments)
+            ),
+            "provider_usage": usage,
+            "actual_batch_cost_usd": round(
+                sum(float(item["actual_batch_cost_usd"]) for item in fragments), 6
+            ),
+            "raw_sha256": file_sha256(raw),
+            "normalized_sha256": file_sha256(normalized),
+            "probe": probe,
+            "last_error": None,
+        }
+    )
+
+
+def _collect_fragment_batch(
+    client: Any,
+    root: Path,
+    state: dict[str, Any],
+    batch: dict[str, Any],
+) -> None:
+    if batch["status"] not in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
+        raise UrduAudioProductionError(f"Shard {batch['shard']} is not collectable")
+    provider_job = client.batches.get(name=batch["batch_id"])
+    destination = getattr(provider_job, "dest", None)
+    file_name = getattr(destination, "file_name", None)
+    if not file_name:
+        raise UrduAudioProductionError(f"Shard {batch['shard']} has no result file")
+    result_path = root / "results" / f"fragment-recovery-{batch['shard']:03d}.jsonl"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    if not result_path.exists():
+        payload = bytes(client.files.download(file=file_name))
+        temp = result_path.with_name(f".{result_path.name}.tmp")
+        temp.write_bytes(payload)
+        os.replace(temp, result_path)
+    rows = {}
+    for line in result_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = json.loads(line)
+            rows[str(row.get("key"))] = row
+    recovery_path = root / "FRAGMENT_RECOVERY.json"
+    recovery = _read_object(recovery_path)
+    fragments = {item["fragment_id"]: item for item in recovery["fragments"]}
+    failures = []
+    for fragment_id in batch["unit_ids"]:
+        fragment = fragments[fragment_id]
+        if fragment["status"] == "complete":
+            continue
+        row = rows.get(fragment_id)
+        if row is None or row.get("error"):
+            error = row.get("error") if row else "missing result row"
+            fragment.update({"status": "failed", "last_error": str(error)})
+            failures.append(fragment_id)
+            continue
+        try:
+            response = row.get("response") or {}
+            raw = Path(fragment["raw_path"])
+            normalized = Path(fragment["normalized_path"])
+            _write_wav(raw, _response_audio(response))
+            _normalize(raw, normalized)
+            probe = _probe(normalized)
+            ratio = probe["duration_seconds"] / max(1, int(fragment["characters"]))
+            if (
+                probe["codec"] != "mp3"
+                or probe["sample_rate"] != 44_100
+                or probe["channels"] != 1
+            ):
+                raise UrduAudioProductionError(f"Audio contract failed: {probe}")
+            if not 0.04 <= ratio <= 0.22:
+                raise UrduAudioProductionError(
+                    f"Implausible duration {probe['duration_seconds']}s for {fragment_id}"
+                )
+            usage = _usage(response, probe["duration_seconds"])
+            cost = (
+                usage["prompt_tokens"] / 1_000_000 * BATCH_INPUT_USD_PER_MILLION
+                + usage["output_tokens"] / 1_000_000 * BATCH_AUDIO_USD_PER_MILLION
+            )
+            fragment.update(
+                {
+                    "status": "complete",
+                    "provider_batch_id": batch["batch_id"],
+                    "provider_result_file": file_name,
+                    "provider_usage": usage,
+                    "actual_batch_cost_usd": round(cost, 6),
+                    "raw_sha256": file_sha256(raw),
+                    "normalized_sha256": file_sha256(normalized),
+                    "probe": probe,
+                    "last_error": None,
+                }
+            )
+        except Exception as exc:
+            fragment.update(
+                {"status": "failed", "last_error": f"{type(exc).__name__}: {exc}"}
+            )
+            failures.append(fragment_id)
+        finally:
+            atomic_json(recovery_path, recovery)
+    for unit_id in batch["original_unit_ids"]:
+        try:
+            _stitch_fragment_unit(root, state, recovery, unit_id)
+        except Exception as exc:
+            job = next(job for job in state["jobs"] if job["unit_id"] == unit_id)
+            job.update(
+                {"status": "failed", "last_error": f"{type(exc).__name__}: {exc}"}
+            )
+            failures.append(unit_id)
+    batch["result_file_name"] = file_name
+    batch["result_path"] = str(result_path)
+    batch["result_sha256"] = file_sha256(result_path)
+    batch["status"] = "collected" if not failures else "collected_with_failures"
+    batch["collected_at"] = utc_now()
+    batch["last_error"] = (
+        None if not failures else "Failed items: " + ", ".join(failures)
+    )
+    if failures:
+        state["status"] = "fragment_recovery_blocked"
+    atomic_json(recovery_path, recovery)
+    _save_state(root, state)
+
+
+def _collect_ready_batch(
+    client: Any,
+    root: Path,
+    state: dict[str, Any],
+    batch: dict[str, Any],
+) -> None:
+    if batch.get("fragment_recovery"):
+        _collect_fragment_batch(client, root, state, batch)
+    else:
+        _collect_batch(client, root, state, batch)
+
+
 COLLECTED_BATCH_STATES = {"collected", "collected_with_failures"}
 
 
@@ -1121,7 +1518,7 @@ def collect_submitted(
             if not batch.get("batch_id") or batch["status"] in COLLECTED_BATCH_STATES:
                 continue
             if batch["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
-                _collect_batch(client, root, state, batch)
+                _collect_ready_batch(client, root, state, batch)
                 continue
             if batch["status"] in TERMINAL_STATES:
                 batch["last_error"] = f"Provider batch ended in {batch['status']}"
@@ -1130,7 +1527,7 @@ def collect_submitted(
                 raise UrduAudioProductionError(batch["last_error"])
             provider_state = _poll_batch(client, root, state, batch)
             if provider_state in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
-                _collect_batch(client, root, state, batch)
+                _collect_ready_batch(client, root, state, batch)
             elif provider_state in TERMINAL_STATES:
                 batch["last_error"] = f"Provider batch ended in {provider_state}"
                 state["status"] = "blocked"
@@ -1243,7 +1640,7 @@ def run(root: Path = PRODUCTION_ROOT, poll_seconds: int = POLL_SECONDS) -> dict[
             if batch["status"] in COLLECTED_BATCH_STATES:
                 continue
             if batch["status"] in {"JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"}:
-                _collect_batch(client, root, state, batch)
+                _collect_ready_batch(client, root, state, batch)
                 continue
             if batch["status"] in TERMINAL_STATES:
                 state["status"] = "blocked"
@@ -1281,6 +1678,7 @@ def main() -> None:
             "run",
             "collect-submitted",
             "prepare-failed-unit-recovery",
+            "prepare-fragment-recovery",
             "resume-quota-wave",
             "assemble",
         ),
@@ -1300,6 +1698,8 @@ def main() -> None:
         result = collect_submitted(poll_seconds=args.poll_seconds)
     elif args.action == "prepare-failed-unit-recovery":
         result = prepare_failed_unit_recovery()
+    elif args.action == "prepare-fragment-recovery":
+        result = prepare_fragment_recovery()
     elif args.action == "resume-quota-wave":
         result = resume_quota_wave(poll_seconds=args.poll_seconds)
     else:

@@ -1,0 +1,93 @@
+{
+  "version": "quran-short-form-episode-v1",
+  "episode_id": "rta-004-quran-030-021",
+  "candidate_id": "sf-018",
+  "production_status": "approved_for_production",
+  "editorial_approval": {
+    "basis": "Owner authorized unattended daily execution after accepting The Open Door strategy and controlled creative testing.",
+    "context_review": "The complete ayah is used within a sequence describing divine signs in human life and creation. The framing retains rest, affection, mercy, and reflection together, and does not reduce the passage to attraction or generic dating advice.",
+    "risk_flags_reviewed": [
+      "relationship_context",
+      "theological_language"
+    ],
+    "selection_scores": {
+      "broad_relatability": 5,
+      "tension": 4,
+      "surprise": 4,
+      "standalone_clarity": 5,
+      "practical_value": 5,
+      "comment_potential": 5,
+      "visual_potential": 5,
+      "total": 33,
+      "maximum": 35
+    },
+    "test_variable": "Relationship-centered provocative claim and quiet domestic care visual versus the justice, verification, and provocation themes in Episodes 1-3."
+  },
+  "source": {
+    "ref": "30:21",
+    "catalog_path": "output/short-form/strategy/SHORT_FORM_CANDIDATE_CATALOG.json",
+    "alignment_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/alignments/0183/normalized.json",
+    "segment_index": 183,
+    "video_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/segments/segment-0183-quran-v2.4.1-nathan-v3-production-v1-0183.mp4",
+    "clip_start_seconds": 168.48,
+    "clip_end_seconds": 182.98,
+    "post_roll_seconds": 0.45,
+    "exact_translation": "Among His signs: He created for you mates from yourselves so that you might find rest with them, and He placed between you affection and mercy. In that are signs for people who reflect."
+  },
+  "branding": {
+    "episode_number": "004",
+    "reference_label": "QURAN 30:21",
+    "surah_label": "AR-RUM  |  THE ROMANS"
+  },
+  "creative": {
+    "hook_label": "BEYOND ATTRACTION",
+    "hook": "ATTRACTION STARTS THINGS.\nWHAT MAKES THEM LAST?",
+    "hook_end_seconds": 2.8,
+    "outro_label": "A PLACE TO REST",
+    "closing": "LOVE NEEDS MORE\nTHAN SPARKS.",
+    "closing_question": "Which matters most: rest, affection, or mercy?"
+  },
+  "visual": {
+    "background_path": "output/short-form/assets/episode-004/quiet-care-kitchen-v1.png",
+    "disclosure": "Generated photorealistic background; no real people, relationship, or event are depicted."
+  },
+  "caption_segments": [
+    {
+      "start_seconds": 0.0,
+      "end_seconds": 1.04,
+      "text": "Among His signs:"
+    },
+    {
+      "start_seconds": 1.68,
+      "end_seconds": 4.32,
+      "text": "He created for you mates from yourselves"
+    },
+    {
+      "start_seconds": 4.78,
+      "end_seconds": 6.66,
+      "text": "so that you might find rest with them,"
+    },
+    {
+      "start_seconds": 7.34,
+      "end_seconds": 10.54,
+      "text": "and He placed between you affection and mercy."
+    },
+    {
+      "start_seconds": 11.56,
+      "end_seconds": 14.5,
+      "text": "In that are signs for people who reflect."
+    }
+  ],
+  "platform_copy": {
+    "instagram": "Attraction can begin a relationship. It cannot carry one by itself.\n\nQuran 30:21 describes partnership through rest, affection, and mercy.\n\nWhich matters most: rest, affection, or mercy?\n\n#ReadThatAgain #Relationships #Mercy #Quran #Love",
+    "tiktok": "Attraction can begin a relationship. It cannot carry one by itself. Quran 30:21. Which matters most: rest, affection, or mercy? #ReadThatAgain #Relationships #Mercy #Quran"
+  },
+  "render": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "duration_seconds": 19.4,
+    "font_regular": "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "font_bold": "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+  }
+}

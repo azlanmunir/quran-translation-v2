@@ -5,8 +5,11 @@ import math
 import struct
 import tempfile
 import unittest
+from functools import cached_property
 from pathlib import Path
 from unittest import mock
+
+import pytest
 
 from quran_translate.audio_production import (
     DEFAULT_AUDIO_RUN_ID,
@@ -23,10 +26,11 @@ from quran_translate.elevenlabs_tts import synthesize_text
 
 
 class AudioProductionTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.plan = plan_chunks()
+    @cached_property
+    def plan(self) -> dict:
+        return plan_chunks()
 
+    @pytest.mark.production_assets
     def test_plan_is_release_pinned_complete_and_within_v3_limit(self) -> None:
         chunks = self.plan["chunks"]
         self.assertEqual(self.plan["ayah_count"], 6236)
@@ -36,6 +40,7 @@ class AudioProductionTests(unittest.TestCase):
         self.assertLessEqual(max(chunk["char_count"] for chunk in chunks), 3200)
         self.assertEqual(sum(chunk["ayah_count"] for chunk in chunks), 6236)
 
+    @pytest.mark.production_assets
     def test_chunks_never_cross_surah_or_juz(self) -> None:
         for chunk in self.plan["chunks"]:
             start_surah = int(chunk["start_ref"].split(":", 1)[0])
@@ -45,6 +50,7 @@ class AudioProductionTests(unittest.TestCase):
         chunk_starts = {chunk["start_ref"] for chunk in self.plan["chunks"]}
         self.assertTrue(starts.issubset(chunk_starts))
 
+    @pytest.mark.production_assets
     def test_canonical_juz_ranges_cover_every_ayah_once(self) -> None:
         from quran_translate.audio_production import _release_rows
 
@@ -57,6 +63,7 @@ class AudioProductionTests(unittest.TestCase):
         self.assertEqual(assignment["2:142"], 2)
         self.assertEqual(assignment["78:1"], 30)
 
+    @pytest.mark.production_assets
     def test_prepare_is_immutable_and_carries_selected_treatment(self) -> None:
         def tool_version(command: list[str]) -> str:
             return "4.0.0" if command[0] == "rubberband" else "ffmpeg version test"

@@ -9,7 +9,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from .config import OUTPUT_DIR, text_sha256
+from .config import OUTPUT_DIR, file_sha256, text_sha256
+from .production_packets import atomic_json
 from .db import utc_now
 from .elevenlabs_tts import (
     DEFAULT_ELEVENLABS_MODEL,
@@ -81,8 +82,6 @@ def prepare_audio_chunks(
             (audio_run_id,),
         ).fetchone()["count"]
     )
-    if existing and existing_chunks and not force:
-        return audio_status(conn, audio_run_id)
 
     rows = publication_rows(conn, translation_run_id)
     if not rows:
@@ -147,6 +146,25 @@ def prepare_audio_chunks(
                 )
             )
             chunk_index += 1
+
+    if existing and existing_chunks:
+        prior = audio_run(conn, audio_run_id)
+        same_settings = all(prior[key] == value for key, value in {
+            "translation_run_id": translation_run_id, "voice_id": voice_id,
+            "model_id": model_id, "output_format": output_format,
+            "chunk_target_chars": chunk_target_chars,
+        }.items())
+        old_chunks = list(conn.execute(
+            "SELECT chunk_id, text_sha256 FROM audio_chunks WHERE audio_run_id = ? ORDER BY chunk_index",
+            (audio_run_id,),
+        ))
+        if not same_settings or [(row["chunk_id"], row["text_sha256"]) for row in old_chunks] != [
+            (row["chunk_id"], row["text_sha256"]) for row in chunks
+        ]:
+            raise ValueError("Audio inputs changed; preserve the existing run and use a new audio_run_id")
+        for completed in complete_chunks(conn, audio_run_id):
+            _validate_existing_audio(conn, completed)
+        return audio_status(conn, audio_run_id)
 
     with conn:
         if existing:
@@ -352,6 +370,8 @@ def synthesize_audio_chunks(
 ) -> dict[str, object]:
     run = audio_run(conn, audio_run_id)
     chunks = pending_chunks(conn, audio_run_id, retry_failed=retry_failed, limit=limit)
+    for completed in complete_chunks(conn, audio_run_id):
+        _validate_existing_audio(conn, completed, context_chars=context_chars)
     processed = 0
     failed = 0
     quota_paused = False
@@ -364,7 +384,7 @@ def synthesize_audio_chunks(
 
     for chunk in chunks:
         try:
-            if maybe_mark_existing_complete(conn, chunk):
+            if maybe_mark_existing_complete(conn, chunk, context_chars=context_chars):
                 processed += 1
                 print(progress_line(conn, audio_run_id, chunk, reused=True), flush=True)
                 continue
@@ -412,6 +432,8 @@ def synthesize_one_chunk(
     request_timeout_seconds: int,
 ) -> None:
     output_path = Path(chunk["output_path"])
+    if maybe_mark_existing_complete(conn, chunk, context_chars=context_chars):
+        return
     last_error = ""
     for _ in range(max_attempts):
         now = utc_now()
@@ -441,7 +463,7 @@ def synthesize_one_chunk(
                 apply_text_normalization="auto",
                 request_timeout_seconds=request_timeout_seconds,
             )
-            mark_chunk_complete(conn, chunk, output_path)
+            mark_chunk_complete(conn, chunk, output_path, context_chars=context_chars)
             return
         except ElevenLabsError as exc:
             last_error = str(exc)
@@ -451,18 +473,58 @@ def synthesize_one_chunk(
     raise ElevenLabsError(last_error or "ElevenLabs generation failed")
 
 
-def maybe_mark_existing_complete(conn: sqlite3.Connection, chunk: sqlite3.Row) -> bool:
+def _audio_provenance(conn, chunk, context_chars: int) -> dict:
+    run = audio_run(conn, chunk["audio_run_id"])
+    previous, following = chunk_context(conn, chunk, context_chars=context_chars)
+    return {
+        "text_sha256": text_sha256(chunk["text"]),
+        "voice_id": run["voice_id"], "model_id": run["model_id"],
+        "output_format": run["output_format"], "seed": seed_for_chunk(chunk["text_sha256"]),
+        "previous_text": previous, "next_text": following, "normalization": "auto",
+        "context_chars": context_chars,
+    }
+
+
+def _validate_existing_audio(
+    conn: sqlite3.Connection, chunk: sqlite3.Row, *, context_chars: int | None = None
+) -> bool:
     output_path = Path(chunk["output_path"])
-    if chunk["status"] == "complete":
-        return True
+    receipt_path = output_path.with_suffix(".receipt.json")
     if output_path.exists() and output_path.stat().st_size > 0:
-        mark_chunk_complete(conn, chunk, output_path)
+        if not receipt_path.is_file():
+            raise ElevenLabsError("Existing audio lacks provenance; preserve it for explicit review")
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if context_chars is None:
+            context_chars = receipt.get("inputs", {}).get("context_chars", DEFAULT_CONTEXT_CHARS)
+        if receipt.get("inputs") != _audio_provenance(conn, chunk, context_chars) or (
+            receipt.get("sha256") != file_sha256(output_path)
+        ):
+            raise ElevenLabsError("Existing audio provenance or checksum changed")
         return True
+    if chunk["status"] == "complete" or receipt_path.exists():
+        raise ElevenLabsError("Completed audio is missing or empty; explicit recovery required")
     return False
 
 
-def mark_chunk_complete(conn: sqlite3.Connection, chunk: sqlite3.Row, output_path: Path) -> None:
+def maybe_mark_existing_complete(
+    conn: sqlite3.Connection, chunk: sqlite3.Row, *, context_chars: int = DEFAULT_CONTEXT_CHARS
+) -> bool:
+    if not _validate_existing_audio(conn, chunk, context_chars=context_chars):
+        return False
+    mark_chunk_complete(conn, chunk, Path(chunk["output_path"]), context_chars=context_chars)
+    return True
+
+
+def mark_chunk_complete(
+    conn: sqlite3.Connection, chunk: sqlite3.Row, output_path: Path,
+    *, context_chars: int = DEFAULT_CONTEXT_CHARS,
+) -> None:
     duration = probe_duration(output_path)
+    atomic_json(output_path.with_suffix(".receipt.json"), {
+        "version": "audio-chunk-provenance-v1",
+        "inputs": _audio_provenance(conn, chunk, context_chars),
+        "sha256": file_sha256(output_path),
+    })
     now = utc_now()
     with conn:
         conn.execute(
@@ -598,6 +660,8 @@ def complete_chunks(conn: sqlite3.Connection, audio_run_id: str) -> list[sqlite3
 
 
 def require_all_chunks_complete(conn: sqlite3.Connection, audio_run_id: str) -> None:
+    for chunk in complete_chunks(conn, audio_run_id):
+        _validate_existing_audio(conn, chunk)
     incomplete = list(
         conn.execute(
             """
@@ -626,6 +690,9 @@ def assemble_surah_outputs(
 ) -> dict[str, object]:
     if not allow_partial:
         require_all_chunks_complete(conn, audio_run_id)
+    else:
+        for chunk in complete_chunks(conn, audio_run_id):
+            _validate_existing_audio(conn, chunk)
     run = audio_run(conn, audio_run_id)
     output_dir = OUTPUT_DIR / "audio" / "surahs" / audio_run_id
     chunks = list(

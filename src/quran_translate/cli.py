@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from .batching import prepare_run, run_status
@@ -64,6 +65,7 @@ from .elevenlabs_tts import (
 from .exporter import export_all
 from .gemini_client import RetryConfig
 from .prompt_builder import build_batch_payload, build_prompt
+from .production_packets import atomic_json
 from .book_pdf import (
     render_annotated_pdf,
     render_book_pdf,
@@ -84,6 +86,47 @@ from .release_hardening import (
     apply_release_adjudications,
     create_release_package,
     run_final_quality_gate,
+)
+from .video_pipeline import (
+    VideoPipelineError,
+    build_narration_manifest,
+    build_video_catalog_plan,
+)
+from .video_alignment import (
+    AlignmentError,
+    compare_alignments,
+    normalize_forced_alignment,
+    normalize_whisper_alignment,
+    request_forced_alignment,
+    run_whisper,
+    write_alignment_review,
+)
+from .video_render import (
+    build_display_events,
+    render_frames,
+    render_video,
+    validate_encoded_timeline,
+    validate_srt_identity,
+    validate_video,
+    write_mobile_review,
+    write_metadata_kit,
+    write_srt,
+)
+from .video_production import (
+    DEFAULT_AUDIO_RUN_ID as DEFAULT_VIDEO_AUDIO_RUN_ID,
+    DEFAULT_CATALOG_PLAN as DEFAULT_VIDEO_CATALOG_PLAN,
+    DEFAULT_LISTENING_EDITION as DEFAULT_VIDEO_LISTENING_EDITION,
+    DEFAULT_NARRATION_MANIFEST as DEFAULT_VIDEO_NARRATION_MANIFEST,
+    DEFAULT_VIDEO_RUN_ID,
+    VideoProductionError,
+    align_video_production,
+    assemble_video_production,
+    migrate_video_duration_cap,
+    migrate_video_duration_contract,
+    migrate_video_loudness_contract,
+    prepare_video_production,
+    render_video_production,
+    video_production_status,
 )
 
 
@@ -667,6 +710,338 @@ def cmd_audio_production_assemble(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_video_narration_manifest(args: argparse.Namespace) -> None:
+    run_root = OUTPUT_DIR / "audio" / "runs" / args.audio_run_id
+    try:
+        payload = build_narration_manifest(
+            run_path=run_root / "RUN.json",
+            inputs_dir=run_root / "inputs",
+            listening_edition_path=Path(args.listening_edition),
+            output_path=Path(args.output),
+        )
+    except VideoPipelineError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "output": str(Path(args.output)),
+                "audio_run_id": payload["audio_run_id"],
+                "final_text_sha256": payload["final_text_sha256"],
+                "totals": payload["totals"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_video_catalog_plan(args: argparse.Namespace) -> None:
+    try:
+        manifest = json.loads(Path(args.narration_manifest).read_text(encoding="utf-8"))
+        payload = build_video_catalog_plan(
+            narration_manifest=manifest,
+            output_path=Path(args.output),
+        )
+    except (OSError, json.JSONDecodeError, VideoPipelineError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps({"output": args.output, **payload["totals"]}, indent=2))
+
+
+def _video_alignment_inputs(args: argparse.Namespace):
+    manifest_path = Path(args.narration_manifest)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    jobs = manifest.get("jobs", [])
+    if not isinstance(jobs, list) or not 1 <= args.chunk_index <= len(jobs):
+        raise SystemExit(f"Chunk index is outside narration manifest: {args.chunk_index}")
+    job = jobs[args.chunk_index - 1]
+    if int(job.get("chunk_index", 0)) != args.chunk_index:
+        raise SystemExit("Narration manifest jobs are not in sequential order")
+    run_root = OUTPUT_DIR / "audio" / "runs" / args.audio_run_id
+    transcript_path = run_root / str(job["input_path"])
+    audio_path = Path(args.audio) if args.audio else (
+        OUTPUT_DIR / "audio" / "pilots" / "source" / Path(str(job["master_mp3_path"])).name
+    )
+    if not transcript_path.exists() or not audio_path.exists():
+        raise SystemExit(f"Missing alignment input: {transcript_path} or {audio_path}")
+    return job, transcript_path, audio_path
+
+
+def cmd_video_align_whisper(args: argparse.Namespace) -> None:
+    job, transcript_path, audio_path = _video_alignment_inputs(args)
+    transcript = transcript_path.read_text(encoding="utf-8")
+    output_path = Path(args.output)
+    raw_path = Path(args.raw_output)
+    try:
+        if not raw_path.exists():
+            generated = run_whisper(
+                audio_path=audio_path,
+                transcript=transcript,
+                output_dir=raw_path.parent,
+                whisper_command=args.whisper_command,
+                model=args.model,
+            )
+            if generated != raw_path:
+                generated.replace(raw_path)
+        raw = json.loads(raw_path.read_text(encoding="utf-8"))
+        payload = normalize_whisper_alignment(
+            raw_payload=raw,
+            transcript=transcript,
+            spans=job["spans"],
+            audio_path=audio_path,
+            raw_path=raw_path,
+            output_path=output_path,
+        )
+    except (AlignmentError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps({"output": str(output_path), **payload["metrics"]}, indent=2))
+
+
+def cmd_video_align_elevenlabs(args: argparse.Namespace) -> None:
+    job, transcript_path, audio_path = _video_alignment_inputs(args)
+    transcript = transcript_path.read_text(encoding="utf-8")
+    output_path = Path(args.output)
+    raw_path = Path(args.raw_output)
+    api_key = env_value("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise SystemExit("Missing ELEVENLABS_API_KEY")
+    try:
+        if raw_path.exists():
+            raw = json.loads(raw_path.read_text(encoding="utf-8"))
+        else:
+            raw = request_forced_alignment(
+                audio_path=audio_path,
+                transcript=transcript,
+                api_key=api_key,
+                output_path=raw_path,
+                timeout_seconds=args.request_timeout,
+            )
+        payload = normalize_forced_alignment(
+            raw_payload=raw,
+            transcript=transcript,
+            spans=job["spans"],
+            audio_path=audio_path,
+            raw_path=raw_path,
+            output_path=output_path,
+        )
+    except AlignmentError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps({"output": str(output_path), **payload["metrics"]}, indent=2))
+
+
+def cmd_video_alignment_compare(args: argparse.Namespace) -> None:
+    try:
+        first = json.loads(Path(args.first).read_text(encoding="utf-8"))
+        second = json.loads(Path(args.second).read_text(encoding="utf-8"))
+        payload = compare_alignments(
+            first=first, second=second, output_path=Path(args.output)
+        )
+    except (OSError, json.JSONDecodeError, AlignmentError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps({"output": args.output, **payload["metrics"]}, indent=2))
+
+
+def cmd_video_alignment_review(args: argparse.Namespace) -> None:
+    try:
+        first = json.loads(Path(args.first).read_text(encoding="utf-8"))
+        second = json.loads(Path(args.second).read_text(encoding="utf-8"))
+        comparison = json.loads(Path(args.comparison).read_text(encoding="utf-8"))
+        payload = write_alignment_review(
+            first=first,
+            second=second,
+            comparison=comparison,
+            audio_path=Path(args.audio),
+            output_dir=Path(args.output_dir),
+            limit=args.limit,
+        )
+    except (OSError, json.JSONDecodeError, AlignmentError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps({"output": args.output_dir, "rows": payload["review_row_count"]}, indent=2))
+
+
+def cmd_video_render_pilot(args: argparse.Namespace) -> None:
+    alignment_path = Path(args.alignment)
+    audio_path = Path(args.audio)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    listening_path = Path(args.listening_edition)
+    try:
+        alignment = json.loads(alignment_path.read_text(encoding="utf-8"))
+        listening = json.loads(listening_path.read_text(encoding="utf-8"))
+        display = build_display_events(
+            alignment, start_ref=args.start_ref, end_ref=args.end_ref
+        )
+        first_ref = display["selection"]["start_ref"]
+        first_row = next(
+            row for row in listening["ayahs"] if row.get("ref") == first_ref
+        )
+        surah_number = int(first_row["surah"])
+        surah_name = str(first_row["surah_name_en"])
+        surah_meaning = str(first_row["surah_meaning_en"])
+        narration_manifest = json.loads(
+            Path(args.narration_manifest).read_text(encoding="utf-8")
+        )
+        job = narration_manifest["jobs"][args.chunk_index - 1]
+        juz_number = int(job["juz_number"])
+
+        display_path = output_dir / "DISPLAY_EVENTS.json"
+        atomic_json(display_path, display)
+        frames = render_frames(
+            display=display,
+            output_dir=output_dir / "frames-2x",
+            surah_name=surah_name,
+            surah_meaning=surah_meaning,
+            juz_number=juz_number,
+        )
+        mobile_review = write_mobile_review(
+            frames=frames,
+            output_dir=output_dir / "mobile-360",
+        )
+        srt_path = write_srt(display, output_dir / "captions.en.srt")
+        srt_qa = validate_srt_identity(display, srt_path)
+        metadata = write_metadata_kit(
+            output_path=output_dir / "YOUTUBE_METADATA.json",
+            surah_number=surah_number,
+            surah_name=surah_name,
+            surah_meaning=surah_meaning,
+            start_ref=str(display["selection"]["start_ref"]),
+            end_ref=str(display["selection"]["end_ref"]),
+        )
+        video_path = output_dir / args.video_name
+        render_result = render_video(
+            display=display,
+            frames=frames,
+            audio_path=audio_path,
+            output_path=video_path,
+        )
+        qa = validate_video(video_path, float(display["selection"]["duration"]))
+        timeline_qa = validate_encoded_timeline(
+            video_path=video_path,
+            display=display,
+            frames=frames,
+        )
+        qa_payload = {
+            "version": "quran-video-pilot-qa-v1",
+            "alignment": {
+                "path": str(alignment_path),
+                "engine": alignment.get("engine"),
+                "audio_sha256": alignment.get("audio_sha256"),
+                "transcript_sha256": alignment.get("transcript_sha256"),
+            },
+            "selection": display["selection"],
+            "display_events": len(display["events"]),
+            "frames": len(frames),
+            "mobile_review": mobile_review,
+            "srt": str(srt_path),
+            "srt_qa": srt_qa,
+            "metadata": metadata,
+            "render": render_result,
+            "checks": qa,
+            "encoded_timeline": timeline_qa,
+        }
+        atomic_json(output_dir / "QA.json", qa_payload)
+    except (OSError, json.JSONDecodeError, StopIteration, AlignmentError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "video": str(video_path),
+                "selection": display["selection"],
+                "events": len(display["events"]),
+                "qa": qa,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_video_production_prepare(args: argparse.Namespace) -> None:
+    try:
+        prepare_video_production(
+            run_id=args.video_run_id,
+            audio_run_id=args.audio_run_id,
+            narration_manifest=Path(args.narration_manifest),
+            catalog_plan=Path(args.catalog_plan),
+            listening_edition=Path(args.listening_edition),
+        )
+        payload = video_production_status(args.video_run_id)
+    except (OSError, VideoProductionError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_align(args: argparse.Namespace) -> None:
+    api_key = env_value("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise SystemExit("Missing ELEVENLABS_API_KEY")
+    try:
+        payload = align_video_production(
+            run_id=args.video_run_id,
+            api_key=api_key,
+            max_attempts=args.max_attempts,
+            request_timeout=args.request_timeout,
+            limit=args.limit,
+        )
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_render(args: argparse.Namespace) -> None:
+    try:
+        payload = render_video_production(
+            run_id=args.video_run_id,
+            limit=args.limit,
+        )
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_assemble(args: argparse.Namespace) -> None:
+    try:
+        payload = assemble_video_production(
+            run_id=args.video_run_id,
+            catalog=args.catalog,
+            decode_check=not args.skip_decode_check,
+        )
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_status(args: argparse.Namespace) -> None:
+    try:
+        payload = video_production_status(args.video_run_id)
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_migrate_duration_cap(args: argparse.Namespace) -> None:
+    try:
+        payload = migrate_video_duration_cap(args.video_run_id)
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_migrate_duration_contract(args: argparse.Namespace) -> None:
+    try:
+        payload = migrate_video_duration_contract(args.video_run_id)
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_video_production_migrate_loudness_contract(args: argparse.Namespace) -> None:
+    try:
+        payload = migrate_video_loudness_contract(args.video_run_id)
+    except VideoProductionError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Quran translation v2 pipeline")
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH), help="SQLite database path")
@@ -915,6 +1290,223 @@ def build_parser() -> argparse.ArgumentParser:
     )
     production_assemble_cmd.add_argument("--decode-check", action="store_true")
     production_assemble_cmd.set_defaults(func=cmd_audio_production_assemble)
+
+    video_manifest_cmd = sub.add_parser(
+        "video-narration-manifest",
+        help="Validate and package the exact narration scripts for timed video",
+    )
+    video_manifest_cmd.add_argument(
+        "--audio-run-id", default=DEFAULT_PRODUCTION_AUDIO_RUN_ID
+    )
+    video_manifest_cmd.add_argument(
+        "--listening-edition",
+        default=str(
+            OUTPUT_DIR
+            / "release"
+            / "quran-translation-v2.4.1"
+            / "quran-listening-edition.json"
+        ),
+    )
+    video_manifest_cmd.add_argument(
+        "--output",
+        default=str(
+            OUTPUT_DIR
+            / "video"
+            / "quran-v2.4.1-youtube"
+            / "NARRATION_MANIFEST.json"
+        ),
+    )
+    video_manifest_cmd.set_defaults(func=cmd_video_narration_manifest)
+
+    video_catalog_cmd = sub.add_parser(
+        "video-catalog-plan",
+        help="Plan one canonical segment render for the 30-Juz and 114-Surah catalogs",
+    )
+    video_catalog_cmd.add_argument(
+        "--narration-manifest",
+        default=str(
+            OUTPUT_DIR
+            / "video"
+            / "pilots"
+            / "quran-v2.4.1-youtube-pilot-v1"
+            / "NARRATION_MANIFEST.json"
+        ),
+    )
+    video_catalog_cmd.add_argument(
+        "--output",
+        default=str(OUTPUT_DIR / "video" / "quran-v2.4.1-youtube" / "CATALOG_PLAN.json"),
+    )
+    video_catalog_cmd.set_defaults(func=cmd_video_catalog_plan)
+
+    for command, function, help_text in (
+        (
+            "video-align-whisper",
+            cmd_video_align_whisper,
+            "Align one narration chunk with local Whisper word timestamps",
+        ),
+        (
+            "video-align-elevenlabs",
+            cmd_video_align_elevenlabs,
+            "Align one narration chunk with ElevenLabs forced alignment",
+        ),
+    ):
+        align_cmd = sub.add_parser(command, help=help_text)
+        align_cmd.add_argument("--chunk-index", type=positive_int, required=True)
+        align_cmd.add_argument(
+            "--audio-run-id", default=DEFAULT_PRODUCTION_AUDIO_RUN_ID
+        )
+        align_cmd.add_argument(
+            "--narration-manifest",
+            default=str(
+                OUTPUT_DIR
+                / "video"
+                / "pilots"
+                / "quran-v2.4.1-youtube-pilot-v1"
+                / "NARRATION_MANIFEST.json"
+            ),
+        )
+        align_cmd.add_argument("--audio")
+        align_cmd.add_argument("--raw-output", required=True)
+        align_cmd.add_argument("--output", required=True)
+        align_cmd.set_defaults(func=function)
+        if command == "video-align-whisper":
+            align_cmd.add_argument("--whisper-command", default="whisper")
+            align_cmd.add_argument("--model", default="turbo")
+        else:
+            align_cmd.add_argument("--request-timeout", type=positive_int, default=600)
+
+    compare_cmd = sub.add_parser(
+        "video-alignment-compare",
+        help="Compare two normalized alignments for the same narration chunk",
+    )
+    compare_cmd.add_argument("--first", required=True)
+    compare_cmd.add_argument("--second", required=True)
+    compare_cmd.add_argument("--output", required=True)
+    compare_cmd.set_defaults(func=cmd_video_alignment_compare)
+
+    alignment_review_cmd = sub.add_parser(
+        "video-alignment-review",
+        help="Package largest aligner disagreements into a local listening console",
+    )
+    alignment_review_cmd.add_argument("--first", required=True)
+    alignment_review_cmd.add_argument("--second", required=True)
+    alignment_review_cmd.add_argument("--comparison", required=True)
+    alignment_review_cmd.add_argument("--audio", required=True)
+    alignment_review_cmd.add_argument("--output-dir", required=True)
+    alignment_review_cmd.add_argument("--limit", type=positive_int, default=20)
+    alignment_review_cmd.set_defaults(func=cmd_video_alignment_review)
+
+    render_pilot_cmd = sub.add_parser(
+        "video-render-pilot",
+        help="Render a QA-gated timed-text pilot from a normalized alignment",
+    )
+    render_pilot_cmd.add_argument("--chunk-index", type=positive_int, required=True)
+    render_pilot_cmd.add_argument("--alignment", required=True)
+    render_pilot_cmd.add_argument("--audio", required=True)
+    render_pilot_cmd.add_argument("--start-ref")
+    render_pilot_cmd.add_argument("--end-ref")
+    render_pilot_cmd.add_argument("--output-dir", required=True)
+    render_pilot_cmd.add_argument("--video-name", default="pilot.mp4")
+    render_pilot_cmd.add_argument(
+        "--narration-manifest",
+        default=str(
+            OUTPUT_DIR
+            / "video"
+            / "pilots"
+            / "quran-v2.4.1-youtube-pilot-v1"
+            / "NARRATION_MANIFEST.json"
+        ),
+    )
+    render_pilot_cmd.add_argument(
+        "--listening-edition",
+        default=str(
+            OUTPUT_DIR
+            / "release"
+            / "quran-translation-v2.4.1"
+            / "quran-listening-edition.json"
+        ),
+    )
+    render_pilot_cmd.set_defaults(func=cmd_video_render_pilot)
+
+    video_prepare_cmd = sub.add_parser(
+        "video-production-prepare",
+        help="Verify and freeze the resumable 313-segment YouTube production run",
+    )
+    video_prepare_cmd.add_argument("--video-run-id", default=DEFAULT_VIDEO_RUN_ID)
+    video_prepare_cmd.add_argument("--audio-run-id", default=DEFAULT_VIDEO_AUDIO_RUN_ID)
+    video_prepare_cmd.add_argument(
+        "--narration-manifest", default=str(DEFAULT_VIDEO_NARRATION_MANIFEST)
+    )
+    video_prepare_cmd.add_argument("--catalog-plan", default=str(DEFAULT_VIDEO_CATALOG_PLAN))
+    video_prepare_cmd.add_argument(
+        "--listening-edition", default=str(DEFAULT_VIDEO_LISTENING_EDITION)
+    )
+    video_prepare_cmd.set_defaults(func=cmd_video_production_prepare)
+
+    video_align_cmd = sub.add_parser(
+        "video-production-align",
+        help="Resume transcript-exact forced alignment for all missing canonical segments",
+    )
+    video_align_cmd.add_argument("--video-run-id", default=DEFAULT_VIDEO_RUN_ID)
+    video_align_cmd.add_argument("--max-attempts", type=positive_int, default=3)
+    video_align_cmd.add_argument("--request-timeout", type=positive_int, default=600)
+    video_align_cmd.add_argument("--limit", type=positive_int)
+    video_align_cmd.set_defaults(func=cmd_video_production_align)
+
+    video_render_cmd = sub.add_parser(
+        "video-production-render",
+        help="Resume QA-gated rendering of the 313 canonical video segments",
+    )
+    video_render_cmd.add_argument("--video-run-id", default=DEFAULT_VIDEO_RUN_ID)
+    video_render_cmd.add_argument("--limit", type=positive_int)
+    video_render_cmd.set_defaults(func=cmd_video_production_render)
+
+    video_assemble_cmd = sub.add_parser(
+        "video-production-assemble",
+        help="Stream-copy canonical segments into the 30-Juz and 114-Surah catalogs",
+    )
+    video_assemble_cmd.add_argument("--video-run-id", default=DEFAULT_VIDEO_RUN_ID)
+    video_assemble_cmd.add_argument(
+        "--catalog", choices=("juz", "surahs", "all"), default="all"
+    )
+    video_assemble_cmd.add_argument("--skip-decode-check", action="store_true")
+    video_assemble_cmd.set_defaults(func=cmd_video_production_assemble)
+
+    video_status_cmd = sub.add_parser(
+        "video-production-status",
+        help="Report resumable alignment, render, and catalog production counts",
+    )
+    video_status_cmd.add_argument("--video-run-id", default=DEFAULT_VIDEO_RUN_ID)
+    video_status_cmd.set_defaults(func=cmd_video_production_status)
+
+    video_migrate_cmd = sub.add_parser(
+        "video-production-migrate-duration-cap",
+        help="Record the mux-duration fix while preserving completed alignments",
+    )
+    video_migrate_cmd.add_argument("--video-run-id", default=DEFAULT_VIDEO_RUN_ID)
+    video_migrate_cmd.set_defaults(func=cmd_video_production_migrate_duration_cap)
+
+    video_duration_contract_cmd = sub.add_parser(
+        "video-production-migrate-duration-contract",
+        help="Adopt MP3-tail tolerance without accepting aligned-speech cutoff",
+    )
+    video_duration_contract_cmd.add_argument(
+        "--video-run-id", default=DEFAULT_VIDEO_RUN_ID
+    )
+    video_duration_contract_cmd.set_defaults(
+        func=cmd_video_production_migrate_duration_contract
+    )
+
+    video_loudness_contract_cmd = sub.add_parser(
+        "video-production-migrate-loudness-contract",
+        help="Adopt practical short-clip LUFS tolerance while preserving peak safety",
+    )
+    video_loudness_contract_cmd.add_argument(
+        "--video-run-id", default=DEFAULT_VIDEO_RUN_ID
+    )
+    video_loudness_contract_cmd.set_defaults(
+        func=cmd_video_production_migrate_loudness_contract
+    )
 
     return parser
 

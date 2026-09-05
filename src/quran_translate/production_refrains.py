@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .production_clients import submit_batch_once
+
 import json
 import re
 import time
@@ -271,7 +273,7 @@ def resolve_refrains(
                 raise RuntimeError("Refrain provider request changed")
             state = client.retrieve(str(job["batch_id"]))
         else:
-            state = client.submit(requests)
+            state = submit_batch_once(client, requests, job_path)
             atomic_json(
                 job_path,
                 {

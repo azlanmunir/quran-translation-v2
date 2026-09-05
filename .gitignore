@@ -1,9 +1,14 @@
 .env
+.env.*
+!.env.example
 .DS_Store
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Generated working data
 data/work/
@@ -13,3 +18,23 @@ output/
 
 # Local scratch
 scratch/
+
+# Local credentials, browser sessions, databases, and generated media
+credentials.json
+client_secret*.json
+token.json
+tokens.json
+cookies*.txt
+cookies*.json
+*.pem
+*.key
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.mp4
+*.mp3
+*.wav
+*.pcm
+*.m4a
+*.flac

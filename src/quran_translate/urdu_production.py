@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from .production_clients import submit_batch_once
+from .state_safety import exclusive_lock
+
 import argparse
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -194,7 +198,7 @@ def _critic_model() -> ModelSpec:
 
 class BudgetLedger:
     def __init__(self, base: Path, ceiling: float) -> None:
-        if ceiling <= 0 or ceiling > 100:
+        if not math.isfinite(ceiling) or ceiling <= 0 or ceiling > 100:
             raise UrduProductionError("Urdu production cost ceiling must be in (0, 100]")
         self.base = base
         self.ceiling = float(ceiling)
@@ -205,22 +209,66 @@ class BudgetLedger:
         total = 0.0
         for path in self.base.rglob("*.json"):
             try:
-                value = _load_json(path).get("cost_usd")
+                document = _load_json(path)
+                value = document.get("cost_usd")
+                if value is None and document.get("stage") == "revision":
+                    raw = document.get("raw")
+                    if isinstance(raw, dict):
+                        usage = raw.get("result", {}).get("message", {}).get("usage", {})
+                        if usage:
+                            value = usage_cost(REVISION_MODEL.model_id, usage)
             except (OSError, json.JSONDecodeError, AttributeError):
                 continue
             if isinstance(value, (int, float)):
+                if not math.isfinite(value) or value < 0:
+                    raise BudgetExceeded(f"Invalid cost evidence: {path}")
                 total += float(value)
         return round(total, 8)
 
     def reserve(self, estimate: float) -> None:
+        if not math.isfinite(estimate) or estimate < 0:
+            raise BudgetExceeded("Invalid request reservation")
         with self.lock:
-            projected = self.spent() + self.reserved + estimate
+            projected = self.spent() + self.reserved + self.persisted_reservations() + estimate
             if projected > self.ceiling:
                 raise BudgetExceeded(
                     f"Provider request would raise reserved spend to ${projected:.2f}, "
                     f"above the ${self.ceiling:.2f} ceiling"
                 )
             self.reserved += estimate
+
+    def persisted_reservations(self) -> float:
+        total = 0.0
+        for path in self.base.rglob("*.budget-reservation.json"):
+            record = _load_json(path)
+            if record.get("state") not in {"held", "settled"}:
+                raise BudgetExceeded(f"Unrecognized reservation state: {path}")
+            value = float(record["reserved_usd"])
+            if not math.isfinite(value) or value < 0:
+                raise BudgetExceeded(f"Invalid reservation evidence: {path}")
+            if record["state"] == "held":
+                total += value
+        return total
+
+    def reserve_job(self, job_path: Path, estimate: float) -> None:
+        if not math.isfinite(estimate) or estimate < 0:
+            raise BudgetExceeded("Invalid batch reservation")
+        path = job_path.with_suffix(".budget-reservation.json")
+        with exclusive_lock(self.base / ".budget.lock"), self.lock:
+            if path.exists():
+                return
+            projected = self.spent() + self.reserved + self.persisted_reservations() + estimate
+            if projected > self.ceiling:
+                raise BudgetExceeded(f"Batch reservation exceeds the ${self.ceiling:.2f} ceiling")
+            atomic_json(path, {"state": "held", "reserved_usd": estimate})
+
+    def settle_job(self, job_path: Path) -> None:
+        path = job_path.with_suffix(".budget-reservation.json")
+        with exclusive_lock(self.base / ".budget.lock"), self.lock:
+            if path.exists():
+                record = _load_json(path)
+                record["state"] = "settled"
+                atomic_json(path, record)
 
     def release(self, estimate: float) -> None:
         with self.lock:
@@ -230,8 +278,10 @@ class BudgetLedger:
         return {
             "ceiling_usd": round(self.ceiling, 2),
             "spent_usd": self.spent(),
-            "reserved_usd": round(self.reserved, 8),
-            "remaining_usd": round(self.ceiling - self.spent() - self.reserved, 8),
+            "reserved_usd": round(self.reserved + self.persisted_reservations(), 8),
+            "remaining_usd": round(
+                self.ceiling - self.spent() - self.reserved - self.persisted_reservations(), 8
+            ),
         }
 
 
@@ -757,12 +807,32 @@ def run_revisions(
     budget: BudgetLedger,
     poll_seconds: int = POLL_SECONDS,
 ) -> None:
+    with exclusive_lock(base / ".revision.lock"):
+        _run_revisions(base, units, verses, bismillah, budget=budget, poll_seconds=poll_seconds)
+
+
+def _run_revisions(
+    base: Path,
+    units: list[ProductionUnit],
+    verses: dict[tuple[int, int], str],
+    bismillah: dict[int, str | None],
+    *,
+    budget: BudgetLedger,
+    poll_seconds: int = POLL_SECONDS,
+) -> None:
     needed = _units_requiring_revision(base, units)
     if not needed:
         return
     load_environment()
     client = AnthropicBatchClient(os.environ.get("ANTHROPIC_API_KEY", ""))
     for attempt in range(1, CONTRACT_ATTEMPTS + 1):
+        job_path = base / f"REVISION_BATCH_ATTEMPT_{attempt}.json"
+        frozen_ids = _load_json(job_path).get("unit_ids") if job_path.exists() else None
+        if frozen_ids is not None and (
+            len(frozen_ids) != len(set(frozen_ids))
+            or any(value not in {unit.unit_id for unit in needed} for value in frozen_ids)
+        ):
+            raise UrduProductionError("Invalid frozen revision batch membership")
         pending: list[tuple[ProductionUnit, str, str, list[str], str]] = []
         for unit in needed:
             system, user, finding_ids = _revision_assignment(
@@ -782,12 +852,18 @@ def run_revisions(
             validator = lambda value, unit=unit, finding_ids=finding_ids: validate_revision(
                 value, expected=unit.expected_ayahs, finding_ids=finding_ids
             )
-            if _load_stage(
+            cached = _load_stage(
                 artifact_path(base, unit, "revision"),
                 input_hash=input_hash,
                 validator=validator,
-            ) is None:
+            )
+            if (frozen_ids is not None and unit.unit_id in frozen_ids) or (
+                frozen_ids is None and cached is None
+            ):
                 pending.append((unit, system, user, finding_ids, input_hash))
+        if frozen_ids is not None:
+            by_id = {row[0].unit_id: row for row in pending}
+            pending = [by_id[value] for value in frozen_ids]
         if not pending:
             return
         requests = [
@@ -814,7 +890,8 @@ def run_revisions(
             else 0.0
         )
         if reservation:
-            budget.reserve(reservation)
+            budget.reserve_job(job_path, reservation)
+        accounted = True
         try:
             if job_path.exists():
                 job = _load_json(job_path)
@@ -822,7 +899,7 @@ def run_revisions(
                     raise UrduProductionError("Existing revision batch input changed")
                 state = client.retrieve(str(job["batch_id"]))
             else:
-                state = client.submit(requests)
+                state = submit_batch_once(client, requests, job_path)
                 atomic_json(
                     job_path,
                     {
@@ -845,6 +922,13 @@ def run_revisions(
                 raise ProviderError(f"Revision batch ended in {state.state}")
             rows = {str(row.get("custom_id")): row for row in client.results(state.batch_id)}
             for unit, _system, _user, finding_ids, input_hash in pending:
+                if _load_stage(
+                    artifact_path(base, unit, "revision"), input_hash=input_hash,
+                    validator=lambda value: validate_revision(
+                        value, expected=unit.expected_ayahs, finding_ids=finding_ids
+                    ),
+                ) is not None:
+                    continue
                 row = rows.get(unit.unit_id)
                 errors: list[str] = []
                 usage: dict[str, Any] = {}
@@ -853,6 +937,9 @@ def run_revisions(
                 else:
                     try:
                         text, metadata = anthropic_result_text(row)
+                        usage = metadata.get("usage", {})
+                        if not usage:
+                            raise UrduProductionError("Provider usage missing; budget hold retained")
                         result = validate_revision(
                             extract_json(text),
                             expected=unit.expected_ayahs,
@@ -860,7 +947,6 @@ def run_revisions(
                         )
                         if result is None:
                             raise UrduProductionError("revision failed strict contract")
-                        usage = metadata.get("usage", {})
                         atomic_json(
                             artifact_path(base, unit, "revision"),
                             {
@@ -880,6 +966,8 @@ def run_revisions(
                         continue
                     except Exception as exc:
                         errors.append(f"{type(exc).__name__}: {exc}"[:3000])
+                if not usage:
+                    accounted = False
                 atomic_json(
                     unit_dir(base, unit) / f"revision-attempt{attempt}-FAILED.json",
                     {
@@ -898,9 +986,12 @@ def run_revisions(
                         "raw": row,
                     },
                 )
-        finally:
-            if reservation:
-                budget.release(reservation)
+        except BaseException:
+            # Keep the durable hold across crashes or uncertain provider outcomes.
+            raise
+        else:
+            if accounted:
+                budget.settle_job(job_path)
     failed = [
         unit.unit_id
         for unit in needed

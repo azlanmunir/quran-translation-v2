@@ -7,6 +7,8 @@ the frozen Muse Spark 1.2 draft for Quran 2:177-187.
 
 from __future__ import annotations
 
+from .production_clients import submit_batch_once
+
 import argparse
 import html
 import json
@@ -251,7 +253,7 @@ def run(root: Path = DEFAULT_ROOT) -> dict[str, Any]:
             raise UrduProbeError("Existing batch job does not match the frozen requests")
         state = client.retrieve(str(job["batch_id"]))
     else:
-        state = client.submit(requests)
+        state = submit_batch_once(client, requests, job_path)
         atomic_json(
             job_path,
             {

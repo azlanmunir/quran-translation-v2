@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from quran_translate.audio_bakeoff import (
     CANDIDATES,
     EXPECTED_FINAL_TEXT_SHA256,
@@ -18,6 +20,7 @@ from quran_translate.audio_bakeoff import (
 
 
 class AudioBakeoffTests(unittest.TestCase):
+    @pytest.mark.production_assets
     def test_passages_are_release_pinned_and_representative(self) -> None:
         passages = passage_payloads()
         self.assertEqual(len(passages), 6)
@@ -25,6 +28,7 @@ class AudioBakeoffTests(unittest.TestCase):
         self.assertTrue(all(item["text_sha256"] for item in passages))
         self.assertGreater(sum(item["char_count"] for item in passages), 3500)
 
+    @pytest.mark.production_assets
     def test_prepare_is_idempotent_and_contains_no_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -36,6 +40,7 @@ class AudioBakeoffTests(unittest.TestCase):
             self.assertEqual(first["final_text_sha256"], EXPECTED_FINAL_TEXT_SHA256)
             self.assertEqual(len(first["jobs"]), len(PASSAGES) * len(CANDIDATES))
 
+    @pytest.mark.production_assets
     def test_prepare_refuses_input_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -55,6 +60,7 @@ class AudioBakeoffTests(unittest.TestCase):
             self.assertEqual(len(set(first.values())), len(candidate_ids))
             self.assertEqual((root / "PRIVATE_BLIND_KEY.json").stat().st_mode & 0o777, 0o600)
 
+    @pytest.mark.production_assets
     def test_release_hash_guard_fails_closed(self) -> None:
         with patch(
             "quran_translate.audio_bakeoff.EXPECTED_FINAL_TEXT_SHA256",

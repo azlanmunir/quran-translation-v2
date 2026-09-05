@@ -1,0 +1,80 @@
+{
+  "version": "quran-short-form-episode-v1",
+  "episode_id": "rta-003-quran-025-063",
+  "candidate_id": "sf-014",
+  "production_status": "approved_for_production",
+  "editorial_approval": {
+    "basis": "Owner authorized unattended daily execution after accepting The Open Door strategy and controlled creative testing.",
+    "context_review": "The complete ayah is used. It begins a description of the servants of the Merciful and specifically addresses gentle conduct under ignorant provocation. The framing does not turn composure into passivity toward abuse, danger, or injustice.",
+    "risk_flags_reviewed": [],
+    "selection_scores": {
+      "broad_relatability": 5,
+      "tension": 4,
+      "surprise": 4,
+      "standalone_clarity": 5,
+      "practical_value": 5,
+      "comment_potential": 4,
+      "visual_potential": 5,
+      "total": 32,
+      "maximum": 35
+    },
+    "test_variable": "Relatable provocation scenario and walk-away visual versus Episode 1's provocative claim and Episode 2's direct challenge."
+  },
+  "source": {
+    "ref": "25:63",
+    "catalog_path": "output/short-form/strategy/SHORT_FORM_CANDIDATE_CATALOG.json",
+    "alignment_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/alignments/0163/normalized.json",
+    "segment_index": 163,
+    "video_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/segments/segment-0163-quran-v2.4.1-nathan-v3-production-v1-0163.mp4",
+    "clip_start_seconds": 109.44,
+    "clip_end_seconds": 116.8,
+    "post_roll_seconds": 0.45,
+    "exact_translation": "The servants of the Merciful are those who walk the earth gently, and when the ignorant address them, they say, 'Peace.'"
+  },
+  "branding": {
+    "episode_number": "003",
+    "reference_label": "QURAN 25:63",
+    "surah_label": "AL-FURQAN  |  THE CRITERION"
+  },
+  "creative": {
+    "hook_label": "WHEN THEY WANT A REACTION",
+    "hook": "THEY WANT A REACTION.\nDO YOU GIVE THEM ONE?",
+    "hook_end_seconds": 2.6,
+    "outro_label": "WALK AWAY WHOLE",
+    "closing": "YOU DON'T HAVE TO ATTEND\nEVERY ARGUMENT.",
+    "closing_question": "What helps you not take the bait?"
+  },
+  "visual": {
+    "background_path": "output/short-form/assets/episode-003/walk-away-from-provocation-v1.png",
+    "disclosure": "Generated photorealistic background; no real person, confrontation, or event is depicted."
+  },
+  "caption_segments": [
+    {
+      "start_seconds": 0.0,
+      "end_seconds": 3.46,
+      "text": "The servants of the Merciful are those who walk the earth gently,"
+    },
+    {
+      "start_seconds": 4.04,
+      "end_seconds": 5.52,
+      "text": "and when the ignorant address them,"
+    },
+    {
+      "start_seconds": 5.56,
+      "end_seconds": 7.36,
+      "text": "they say, 'Peace.'"
+    }
+  ],
+  "platform_copy": {
+    "instagram": "Not every provocation deserves your reaction.\n\nQuran 25:63 describes people who walk gently and answer ignorant provocation with peace.\n\nWhat helps you not take the bait?\n\n#ReadThatAgain #SelfControl #Peace #Quran #EmotionalIntelligence",
+    "tiktok": "Not every provocation deserves your reaction. Quran 25:63. What helps you not take the bait? #ReadThatAgain #SelfControl #Peace #Quran"
+  },
+  "render": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "duration_seconds": 12.2,
+    "font_regular": "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "font_bold": "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+  }
+}

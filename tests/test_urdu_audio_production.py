@@ -6,6 +6,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import pytest
+
 from quran_translate.urdu_audio_production import (
     HARD_ESTIMATED_BATCH_COST_USD,
     MODEL_ID,
@@ -28,6 +30,7 @@ from quran_translate.production_packets import atomic_json
 
 
 class UrduAudioProductionTests(unittest.TestCase):
+    @pytest.mark.production_assets
     def test_frozen_units_cover_every_ayah_once(self) -> None:
         units = _build_units()
         self.assertEqual(len(units), 343)
@@ -50,6 +53,7 @@ class UrduAudioProductionTests(unittest.TestCase):
             _speech_ayah("19:1", "بدلا ہوا متن")
         self.assertGreaterEqual(len(PRONUNCIATION_OVERRIDES), 25)
 
+    @pytest.mark.production_assets
     def test_batch_request_uses_audio_and_charon(self) -> None:
         unit = _build_units()[0]
         row = json.loads(_request_line(unit))
@@ -62,6 +66,7 @@ class UrduAudioProductionTests(unittest.TestCase):
         )
         self.assertEqual(MODEL_ID, "gemini-2.5-pro-preview-tts")
 
+    @pytest.mark.production_assets
     def test_shards_isolate_canary_and_respect_character_target(self) -> None:
         units = _build_units()
         shards = _make_shards(units)
@@ -73,6 +78,7 @@ class UrduAudioProductionTests(unittest.TestCase):
         seeded_flattened = [unit["unit_id"] for shard in seeded_shards for unit in shard]
         self.assertEqual(seeded_flattened, [unit["unit_id"] for unit in units[2:]])
 
+    @pytest.mark.production_assets
     def test_prepare_is_immutable_and_below_cost_ceiling(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -122,6 +128,7 @@ class UrduAudioProductionTests(unittest.TestCase):
             self.assertEqual(updated["quota_recovery_waves"], 1)
             run_mock.assert_called_once_with(root, poll_seconds=1)
 
+    @pytest.mark.production_assets
     def test_failed_unit_recovery_is_targeted_preserved_and_idempotent(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -223,6 +230,7 @@ class UrduAudioProductionTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "attempt ceiling"):
                 prepare_failed_unit_recovery(root)
 
+    @pytest.mark.production_assets
     def test_fragment_unit_preserves_ayah_order_and_reduces_request_size(self) -> None:
         unit = max(_build_units(), key=lambda item: len(item["refs"]))
         fragments = _fragment_unit(unit)
@@ -264,6 +272,7 @@ class UrduAudioProductionTests(unittest.TestCase):
             fragment["speech_text"].split(),
         )
 
+    @pytest.mark.production_assets
     def test_fragment_recovery_is_targeted_frozen_and_idempotent(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -309,6 +318,7 @@ class UrduAudioProductionTests(unittest.TestCase):
                 len(fragment_batches),
             )
 
+    @pytest.mark.production_assets
     def test_smaller_fragment_recovery_reuses_success_and_splits_failures(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -1,0 +1,80 @@
+{
+  "version": "quran-short-form-episode-v1",
+  "episode_id": "rta-002-quran-017-036",
+  "candidate_id": "sf-013",
+  "production_status": "approved_for_production",
+  "editorial_approval": {
+    "basis": "Owner authorized unattended daily execution after accepting The Open Door strategy and controlled creative testing.",
+    "context_review": "The complete ayah is used. It sits within a sequence of practical moral instructions and makes the use of hearing, sight, and heart accountable. The framing applies that responsibility to unverified claims without narrowing the verse to one platform or inventing a historical context.",
+    "risk_flags_reviewed": [],
+    "selection_scores": {
+      "broad_relatability": 5,
+      "tension": 5,
+      "surprise": 4,
+      "standalone_clarity": 5,
+      "practical_value": 5,
+      "comment_potential": 5,
+      "visual_potential": 5,
+      "total": 34,
+      "maximum": 35
+    },
+    "test_variable": "Direct-challenge hook, shorter runtime, and everyday digital-information visual versus Episode 1's provocative-claim hook and cinematic fairness scene."
+  },
+  "source": {
+    "ref": "17:36",
+    "catalog_path": "output/short-form/strategy/SHORT_FORM_CANDIDATE_CATALOG.json",
+    "alignment_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/alignments/0125/normalized.json",
+    "segment_index": 125,
+    "video_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/segments/segment-0125-quran-v2.4.1-nathan-v3-production-v1-0125.mp4",
+    "clip_start_seconds": 147.68,
+    "clip_end_seconds": 156.24,
+    "post_roll_seconds": 0.45,
+    "exact_translation": "Do not pursue what you have no knowledge of. The hearing, the sight, and the heart—each of those will be questioned about."
+  },
+  "branding": {
+    "episode_number": "002",
+    "reference_label": "QURAN 17:36",
+    "surah_label": "AL-ISRA  |  NIGHT JOURNEY"
+  },
+  "creative": {
+    "hook_label": "BEFORE YOU SHARE IT",
+    "hook": "HOW MUCH OF WHAT YOU BELIEVE\nDID YOU ACTUALLY VERIFY?",
+    "hook_end_seconds": 2.7,
+    "outro_label": "ANSWER HONESTLY",
+    "closing": "NOT EVERY CLAIM\nDESERVES YOUR BELIEF.",
+    "closing_question": "What makes you pause before sharing?"
+  },
+  "visual": {
+    "background_path": "output/short-form/assets/episode-002/verify-before-believing-v1.png",
+    "disclosure": "Generated photorealistic background; no real person, interface, claim, or event is depicted."
+  },
+  "caption_segments": [
+    {
+      "start_seconds": 0.0,
+      "end_seconds": 2.64,
+      "text": "Do not pursue what you have no knowledge of."
+    },
+    {
+      "start_seconds": 3.46,
+      "end_seconds": 6.5,
+      "text": "The hearing, the sight, and the heart—each"
+    },
+    {
+      "start_seconds": 6.56,
+      "end_seconds": 8.56,
+      "text": "of those will be questioned about."
+    }
+  ],
+  "platform_copy": {
+    "instagram": "How much of what you believe did you actually verify?\n\nQuran 17:36 warns against pursuing claims without knowledge, then makes hearing, sight, and heart accountable.\n\nWhat makes you pause before sharing: the source, the wording, or your gut?\n\n#ReadThatAgain #ThinkBeforeYouShare #CriticalThinking #Quran #MediaLiteracy",
+    "tiktok": "How much of what you believe did you actually verify? Quran 17:36. What makes you pause before sharing: the source, the wording, or your gut? #ReadThatAgain #ThinkBeforeYouShare #CriticalThinking #Quran"
+  },
+  "render": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "duration_seconds": 13.2,
+    "font_regular": "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "font_bold": "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+  }
+}

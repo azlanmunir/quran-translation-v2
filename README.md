@@ -1,6 +1,70 @@
 # Quran Translation v2
 
-A clean, resumable Quran translation and publication pipeline.
+A resumable English and Urdu Quran translation, audiobook, and video pipeline.
+
+This repository is the maintained v2 codebase. The `v2` Git tag identifies
+software snapshot `2.0.0`; English text release `v2.4.1` and Urdu text release
+`v1.0.0` have independent, frozen provenance and are not renamed by this tag.
+The [legacy public repository](https://github.com/azlanmunir/quran-translation)
+is preserved separately.
+
+## Scope and Quality
+
+- Canonical Arabic source import, addressed English/Urdu translation, bounded
+  review/recovery, publication exports, and release manifests.
+- Narration production, 30 canonical Para and 114 Surah assemblies per language,
+  synchronized captions, alignment, rendering, checksums, and decode gates.
+- Short-form candidate selection, exact-verse episode specifications, final-audio
+  semantic checks, and immutable publication receipts.
+
+The repository contains source, policies, tests, and selected frozen decision
+manifests. It does **not** contain API keys, browser sessions, production databases,
+generated books/audio/video, or live publication receipts. A clone alone cannot
+resume production: restore the matching original artifacts and verify their hashes
+first. Social account sessions and daily scheduling live outside this repository;
+the code does not by itself log in or schedule posts.
+
+Passing software tests is not a scholarly certification of the translations or a
+fresh audit of every published video. The September 2026 stricter Urdu alignment
+audit flagged **202 of 343 historical records for review** (141 passed). These are
+review flags, not proof of missing speech. Historical artifacts and the validated
+unit-173 content repair remain preserved; no bulk timing fabrication or
+regeneration is approved. See [v2 release notes](docs/V2_RELEASE_NOTES.md).
+
+## Environment and Tests
+
+Use Python 3.11 or newer. The complete media test stack is tested on Apple Silicon
+macOS and uses MLX Whisper, FFmpeg/ffprobe, Rubber Band, and macOS fonts.
+Urdu rendering also requires Pango and the configured Nastaliq font.
+Cross-platform media rendering is not certified.
+The optional Urdu PDF helper additionally needs Node.js, the `playwright`
+package, and Google Chrome (or an explicit `CHROME_PATH`).
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt -r requirements-urdu-video.txt
+python -m pytest -q
+```
+
+Install FFmpeg and Rubber Band separately before running the media smoke tests.
+The clean-checkout suite passes 206 tests and skips 24 production-asset integration
+checks. After restoring the original matching releases/media locally, explicitly
+run those checks with:
+
+```bash
+python -m pytest -q --production-assets
+```
+
+This option does not waive provenance validation: missing or changed assets fail.
+Tests must not use paid provider calls. Translation/narration commands below can
+spend credits; review their budgets and immutable run IDs before execution.
+Do not use a new checkout to restart an existing paid or publishing job blindly.
+
+Urdu video source artifacts default to this checkout. For an existing separate
+source checkout, pass `--source-root` or set `QURAN_SOURCE_ROOT` in the process
+environment before starting the command. Existing `RUN.json` contracts still
+control resumed runs.
 
 The design goal is simple: keep the Quran structure immutable and let models operate
 only on already-addressed ayahs. Every generated translation is tied to a stable
@@ -59,7 +123,10 @@ The paid command is intentionally the same without `--dry-run`. Use a new immuta
 run ID for the actual launch. See `PRODUCTION_V2_4.md` for the launch and recovery
 contract.
 
-## Quick Start
+## Basic Translation CLI
+
+These commands exercise the original small-batch CLI. For the reviewed,
+multi-stage production workflow use the Production v2.4 Pipeline above.
 
 ```bash
 python3 -m venv .venv

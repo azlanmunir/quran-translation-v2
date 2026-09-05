@@ -1,0 +1,65 @@
+{
+  "version": "quran-short-form-episode-v1",
+  "episode_id": "rta-001-quran-005-008",
+  "candidate_id": "sf-006",
+  "production_status": "approved_for_production",
+  "editorial_approval": {
+    "basis": "Owner authorized unattended daily execution after accepting The Open Door strategy.",
+    "context_review": "The complete ayah is used. The preceding passage establishes covenant and obedience; the following passage connects right action with accountability. The framing demands justice during disagreement and does not ask viewers to suppress legitimate disagreement.",
+    "risk_flags_reviewed": []
+  },
+  "source": {
+    "ref": "5:8",
+    "catalog_path": "output/short-form/strategy/SHORT_FORM_CANDIDATE_CATALOG.json",
+    "alignment_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/alignments/0046/normalized.json",
+    "segment_index": 46,
+    "video_path": "output/video/runs/quran-v2.4.1-youtube-production-v1/segments/segment-0046-quran-v2.4.1-nathan-v3-production-v1-0046.mp4",
+    "clip_start_seconds": 240.04,
+    "clip_end_seconds": 261.24,
+    "post_roll_seconds": 0.45,
+    "exact_translation": "You who believe, be steadfast before God as witnesses in fairness. Do not let the hatred of a people drive you away from justice. Be just—that is closer to guarding yourselves. Fear God—God is well aware of what you do."
+  },
+  "creative": {
+    "hook": "YOU CAN DISLIKE SOMEONE\nAND STILL OWE THEM JUSTICE.",
+    "closing": "FAIRNESS MATTERS MOST\nWHEN ANGER FEELS JUSTIFIED.",
+    "closing_question": "Where is fairness hardest for you?"
+  },
+  "visual": {
+    "background_path": "output/short-form/assets/episode-001/fairness-opponents-v1.png",
+    "disclosure": "Stylized generated background; no real person or event is depicted."
+  },
+  "caption_segments": [
+    {
+      "start_seconds": 0.0,
+      "end_seconds": 5.76,
+      "text": "You who believe, be steadfast before God as witnesses in fairness."
+    },
+    {
+      "start_seconds": 6.78,
+      "end_seconds": 10.78,
+      "text": "Do not let the hatred of a people drive you away from justice."
+    },
+    {
+      "start_seconds": 11.82,
+      "end_seconds": 15.52,
+      "text": "Be just—that is closer to guarding yourselves."
+    },
+    {
+      "start_seconds": 16.78,
+      "end_seconds": 21.2,
+      "text": "Fear God—God is well aware of what you do."
+    }
+  ],
+  "platform_copy": {
+    "instagram": "You can dislike someone and still owe them justice.\n\nQuran 5:8 asks for fairness precisely when anger makes fairness hardest.\n\nWhere is this hardest: online, at work, or in politics?\n\n#ReadThatAgain #Justice #Fairness #Quran #ThoughtForToday",
+    "tiktok": "You can dislike someone and still owe them justice. Quran 5:8. Where is fairness hardest: online, at work, or in politics? #ReadThatAgain #Justice #Fairness #Quran"
+  },
+  "render": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "duration_seconds": 25.2,
+    "font_regular": "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "font_bold": "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+  }
+}

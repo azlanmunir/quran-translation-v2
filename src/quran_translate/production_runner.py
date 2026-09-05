@@ -15,6 +15,9 @@ submitting duplicates.
 
 from __future__ import annotations
 
+from .production_clients import submit_batch_once
+from .state_safety import exclusive_lock
+
 import argparse
 import hashlib
 import json
@@ -834,59 +837,75 @@ def run_anthropic_stage(
     assignment: Callable[[ProductionUnit, int], tuple[str, Any, Callable[[Any], Any]]],
     client: AnthropicBatchClient,
 ) -> None:
-    response_schema = anthropic_schema_for_stage(stage)
-    for attempt in range(1, CONTRACT_ATTEMPTS + 1):
-        existing_attempt_jobs = sorted(
-            (base / "jobs").glob(f"{stage}-a{attempt}-s*.json")
+    with exclusive_lock(base / "jobs" / f".{stage}.lock"):
+        _run_anthropic_stage(
+            base=base, stage=stage, units=units, shard_size=shard_size,
+            poll_seconds=poll_seconds, system=system, assignment=assignment, client=client,
         )
-        if existing_attempt_jobs:
-            unit_by_custom_id = {
-                f"{stage[:8]}-{unit.unit_id}": unit for unit in units
-            }
-            submitted_ids = [
-                custom_id
-                for job_path in existing_attempt_jobs
-                for custom_id in json.loads(
-                    job_path.read_text(encoding="utf-8")
-                ).get("custom_ids", [])
-            ]
-            if not submitted_ids or any(
-                custom_id not in unit_by_custom_id for custom_id in submitted_ids
-            ):
-                raise ProductionError(
-                    f"Existing {stage} job has invalid custom_ids for attempt {attempt}"
-                )
-            attempt_units = [unit_by_custom_id[custom_id] for custom_id in submitted_ids]
-        else:
-            attempt_units = (
-                list(units)
-                if attempt == 1
-                else [
-                    unit
-                    for unit in units
-                    if (
-                        unit_dir(base, unit)
-                        / f"{stage}-attempt{attempt - 1}-FAILED.json"
-                    ).exists()
-                    and not artifact_path(base, unit, stage).exists()
-                ]
-            )
-        if not attempt_units:
-            break
-        work: list[tuple[ProductionUnit, str, str, Callable[[Any], Any]]] = []
-        for unit in attempt_units:
+
+
+def _run_anthropic_stage(
+    *,
+    base: Path,
+    stage: str,
+    units: list[ProductionUnit],
+    shard_size: int,
+    poll_seconds: int,
+    system: list[dict[str, Any]],
+    assignment: Callable[[ProductionUnit, int], tuple[str, Any, Callable[[Any], Any]]],
+    client: AnthropicBatchClient,
+) -> None:
+    response_schema = anthropic_schema_for_stage(stage)
+    if shard_size <= 0:
+        raise ProductionError("Shard size must be positive")
+    for attempt in range(1, CONTRACT_ATTEMPTS + 1):
+        work_by_id = {}
+        cached_ids = set()
+        for unit in units:
             user, hash_payload, validator = assignment(unit, attempt)
             input_hash = _stage_input_hash(stage, unit, hash_payload)
-            cached = load_artifact(
-                artifact_path(base, unit, stage), input_hash, validator
-            )
-            if cached is not None and not existing_attempt_jobs:
+            cached = load_artifact(artifact_path(base, unit, stage), input_hash, validator)
+            work_by_id[unit.unit_id] = (unit, user, input_hash, validator)
+            if cached is not None:
+                cached_ids.add(unit.unit_id)
+        plan_path = base / "jobs" / f"{stage}-a{attempt}-plan.json"
+        if plan_path.exists():
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            groups = plan["groups"]
+            if plan.get("shard_size") != shard_size:
+                raise ProductionError("Frozen shard size changed")
+        else:
+            # Preserve legacy accepted shard membership exactly; append missing work.
+            groups = []
+            jobs = sorted((base / "jobs").glob(f"{stage}-a{attempt}-s*.json"))
+            for index, job_path in enumerate(jobs, start=1):
+                if job_path != _job_path(base, stage, attempt, index):
+                    raise ProductionError("Non-contiguous legacy shards require reconciliation")
+                job = json.loads(job_path.read_text(encoding="utf-8"))
+                custom_ids = job.get("custom_ids", [])
+                prefix = stage[:8] + "-"
+                if not custom_ids or any(not value.startswith(prefix) for value in custom_ids):
+                    raise ProductionError("Invalid existing shard membership")
+                groups.append([value[len(prefix):] for value in custom_ids])
+            assigned = {value for group in groups for value in group}
+            pending = [
+                unit.unit_id for unit in units
+                if unit.unit_id not in assigned and unit.unit_id not in cached_ids
+                and (attempt == 1 or (
+                    unit_dir(base, unit) / f"{stage}-attempt{attempt - 1}-FAILED.json"
+                ).exists())
+            ]
+            groups.extend(_shards(pending, shard_size))
+            atomic_json(plan_path, {"shard_size": shard_size, "groups": groups})
+        flat = [value for group in groups for value in group]
+        if len(flat) != len(set(flat)) or any(value not in work_by_id for value in flat):
+            raise ProductionError("Frozen attempt has invalid or duplicate units")
+        if any(not group for group in groups):
+            raise ProductionError("Frozen attempt has an empty shard")
+        for shard_index, group in enumerate(groups, start=1):
+            shard = [work_by_id[value] for value in group]
+            if all(value in cached_ids for value in group):
                 continue
-            work.append((unit, user, input_hash, validator))
-        if not work:
-            break
-
-        for shard_index, shard in enumerate(_shards(work, shard_size), start=1):
             requests = [
                 {
                     "custom_id": f"{stage[:8]}-{unit.unit_id}",
@@ -913,7 +932,7 @@ def run_anthropic_stage(
                     raise ProductionError(f"Provider job input mismatch: {job_path}")
                 state = client.retrieve(str(job["batch_id"]))
             else:
-                state = client.submit(requests)
+                state = submit_batch_once(client, requests, job_path)
                 atomic_json(
                     job_path,
                     {

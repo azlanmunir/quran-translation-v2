@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import http.client
 import json
 import ssl
@@ -12,6 +13,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .production_packets import atomic_json
+from .state_safety import exclusive_lock
 
 
 RETRYABLE_HTTP = {408, 409, 429, 500, 502, 503, 504, 529}
@@ -57,6 +61,8 @@ def _json_request(
     timeout: int,
     attempts: int = 4,
 ) -> dict[str, Any]:
+    if request.get_method() not in {"GET", "HEAD"}:
+        attempts = 1
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -83,6 +89,35 @@ def _json_request(
             _retry_delay(attempt)
     raise AssertionError("unreachable")
 
+
+
+def submit_batch_once(client: Any, requests: list[dict[str, Any]], job_path: Path) -> BatchState:
+    """Persist submission intent before a mutation and reuse only a known receipt."""
+    receipt_path = job_path.with_name(job_path.name + ".submission.json")
+    request_hash = hashlib.sha256(json.dumps(
+        requests, sort_keys=True, ensure_ascii=False
+    ).encode("utf-8")).hexdigest()
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    with exclusive_lock(receipt_path.with_suffix(".lock")):
+        if receipt_path.exists():
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if receipt.get("request_hash") != request_hash:
+                raise ProviderError(f"Submission input changed: {receipt_path}")
+            if not receipt.get("batch_id"):
+                raise ProviderError(
+                    f"Uncertain prior submission; reconcile before retrying: {receipt_path}"
+                )
+            return BatchState(receipt["batch_id"], receipt["state"], receipt.get("raw", {}))
+        atomic_json(receipt_path, {"request_hash": request_hash, "state": "submitting"})
+        # Any exception, including interruption, deliberately leaves a blocking intent.
+        state = client.submit(requests)
+        if not state.batch_id:
+            raise ProviderError("Submitted batch lacks an ID; reconciliation is required")
+        atomic_json(receipt_path, {
+            "request_hash": request_hash, "batch_id": state.batch_id,
+            "state": state.state, "raw": state.raw,
+        })
+        return state
 
 class AnthropicBatchClient:
     """Small dependency-free client for Anthropic Message Batches."""

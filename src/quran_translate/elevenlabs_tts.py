@@ -90,6 +90,7 @@ def synthesize_text(
     seed: int | None = None,
     voice_settings: dict[str, Any] | None = None,
     apply_text_normalization: str | None = None,
+    language_code: str | None = None,
     request_timeout_seconds: int = 120,
 ) -> Path:
     if not text.strip():
@@ -117,6 +118,8 @@ def synthesize_text(
         body["voice_settings"] = voice_settings
     if apply_text_normalization:
         body["apply_text_normalization"] = apply_text_normalization
+    if language_code:
+        body["language_code"] = language_code.strip()
 
     request = urllib.request.Request(
         url,

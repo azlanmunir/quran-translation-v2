@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .production_clients import submit_batch_once
+
 import argparse
 import json
 import os
@@ -536,7 +538,7 @@ def run_opus_adjudication(
                 raise ProductionError(f"Opus remediation job changed: {job_path}")
             state = client.retrieve(str(job["batch_id"]))
         else:
-            state = client.submit([request])
+            state = submit_batch_once(client, [request], job_path)
             atomic_json(
                 job_path,
                 {

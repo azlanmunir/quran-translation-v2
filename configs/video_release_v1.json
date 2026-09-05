@@ -1,0 +1,70 @@
+{
+  "version": "quran-youtube-release-policy-v1",
+  "source": {
+    "narration_manifest_version": "quran-video-narration-manifest-v1",
+    "alignment_version": "quran-video-alignment-v1",
+    "single_canonical_timeline": true,
+    "realign_catalog_cuts": false,
+    "render_unit": "313 canonical narration chunks",
+    "catalog_assembly": "ffmpeg concat stream copy; no re-encoding"
+  },
+  "catalogs": {
+    "juz": {
+      "count": 30,
+      "filename": "juz-{number:02d}.mp4",
+      "title": "Juz {number} | The Quran — English Listening Edition",
+      "chapters": "surah boundaries, plus ayah-range chapters when needed to satisfy useful ten-minute navigation"
+    },
+    "surah": {
+      "count": 114,
+      "filename": "surah-{number:03d}-{slug}.mp4",
+      "title": "{surah_name} ({number}) — {meaning} | English Quran Audiobook",
+      "chapters": "ayah-range chapters snapped near ten-minute intervals for long surahs"
+    }
+  },
+  "visual": {
+    "resolution": "1920x1080",
+    "render_scale": 2,
+    "background": "#0F1113",
+    "primary_text": "#F0ECE2",
+    "secondary_text": "#7E8389",
+    "accent": "#D3B25B",
+    "typeface": "Avenir Next",
+    "sync_unit": "ayah",
+    "short_ayah_group_size": [2, 4],
+    "long_ayah_behavior": "punctuation-aware clause advance",
+    "word_karaoke": false,
+    "mobile_validation_width": 360
+  },
+  "audio": {
+    "integrated_loudness_lufs": -18.0,
+    "integrated_loudness_tolerance_lu": 0.3,
+    "true_peak_ceiling_dbtp": -1.0,
+    "target_true_peak_dbtp": -1.5,
+    "loudness_range_target_lu": 11,
+    "preserve_mono": true,
+    "sample_rate_hz": 44100,
+    "codec": "AAC",
+    "bitrate": "192k"
+  },
+  "video": {
+    "container": "MP4",
+    "codec": "H.264 High Profile",
+    "pixel_format": "yuv420p",
+    "frame_rate": 30,
+    "fast_start": true
+  },
+  "captions": {
+    "format": "SRT",
+    "language": "en",
+    "derived_from_canonical_timeline": true
+  },
+  "disclosure": {
+    "synthetic_content_flag": true,
+    "description_line": "English translation produced through a documented AI-assisted, evidence-audited workflow. Narration uses a selected synthetic voice; timings are aligned to the exact published text."
+  },
+  "deferred": [
+    "vertical Shorts catalog",
+    "bilingual Arabic-English edition"
+  ]
+}

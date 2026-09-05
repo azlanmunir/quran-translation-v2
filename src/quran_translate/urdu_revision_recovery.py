@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .production_clients import submit_batch_once
+
 import argparse
 import os
 import time
@@ -304,7 +306,7 @@ def run_recovery(
                 for _unit, system, user, _finding_ids, _input_hash in pending
             )
             budget.reserve(reservation)
-            state = client.submit(requests)
+            state = submit_batch_once(client, requests, batch_path)
             atomic_json(
                 batch_path,
                 {

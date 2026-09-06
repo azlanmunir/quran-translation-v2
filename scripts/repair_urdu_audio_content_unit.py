@@ -351,7 +351,8 @@ def _commit(unit_id: str, validation_path: Path, omitted_refs: list[str]) -> dic
     state = _read_object(PRODUCTION_ROOT / "RUN.json")
     units = {item["unit_id"]: item for item in _read_list(PRODUCTION_ROOT / "UNITS.json")}
     jobs = {item["unit_id"]: item for item in state["jobs"]}
-    unit = units[unit_id]
+    if unit_id not in units:
+        raise KeyError(unit_id)
     job = jobs[unit_id]
     canonical_raw = Path(str(job["raw_path"]))
     canonical_mp3 = Path(str(job["normalized_path"]))

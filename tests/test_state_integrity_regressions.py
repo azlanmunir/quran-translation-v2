@@ -175,7 +175,7 @@ def test_forced_audio_input_change_requires_new_run(conn, tmp_path, monkeypatch,
         ])
     else:
         kwargs["voice_id"] = "other-voice"
-    with pytest.raises(ValueError, match="new audio_run_id"):
+    with pytest.warns(FutureWarning, match="deprecated"), pytest.raises(ValueError, match="new audio_run_id"):
         audio.prepare_audio_chunks(conn, **kwargs, force=True)
     assert conn.execute("SELECT text_sha256 FROM audio_chunks").fetchone()[0] == chunk["text_sha256"]
 

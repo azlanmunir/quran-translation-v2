@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .config import DATA_DIR, DEFAULT_DB_PATH, PROJECT_ROOT
+from .config import DATA_DIR, DEFAULT_DB_PATH
 from .db import connect
 from .production_packets import ProductionUnit, atomic_json, atomic_text, source_verses
 from .refrains import repeated_ayah_groups

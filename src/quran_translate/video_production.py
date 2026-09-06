@@ -6,7 +6,6 @@ from .catalog_cache import catalog_contract, validate_cached_catalog
 
 import json
 import os
-import re
 import subprocess
 import time
 from pathlib import Path

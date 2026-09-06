@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from .db import utc_now
-from .metadata import SURAHS, SURAH_BY_NUMBER
+from .metadata import SURAHS
 
 
 BANNED_TERMS = (

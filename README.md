@@ -45,10 +45,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt -r requirements-urdu-video.txt
 python -m pytest -q
+python -m ruff check src scripts --select F
 ```
 
 Install FFmpeg and Rubber Band separately before running the media smoke tests.
-The clean-checkout suite passes 206 tests and skips 24 production-asset integration
+The clean-checkout suite passes 215 tests and skips 24 production-asset integration
 checks. After restoring the original matching releases/media locally, explicitly
 run those checks with:
 
@@ -60,6 +61,9 @@ This option does not waive provenance validation: missing or changed assets fail
 Tests must not use paid provider calls. Translation/narration commands below can
 spend credits; review their budgets and immutable run IDs before execution.
 Do not use a new checkout to restart an existing paid or publishing job blindly.
+For ambiguous submissions, follow [Submission Recovery](docs/SUBMISSION_RECOVERY.md).
+CI runs lint and the default suite on a standard Apple Silicon macOS runner without
+provider credentials or production media. It does not certify production releases.
 
 Urdu video source artifacts default to this checkout. For an existing separate
 source checkout, pass `--source-root` or set `QURAN_SOURCE_ROOT` in the process

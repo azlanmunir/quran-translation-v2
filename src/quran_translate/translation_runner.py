@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from typing import Iterable
 
 from .db import utc_now
 from .gemini_client import GeminiGenerator, RetryConfig, TextGenerator, generate_with_retry

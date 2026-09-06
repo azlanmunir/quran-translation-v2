@@ -1188,7 +1188,10 @@ def build_parser() -> argparse.ArgumentParser:
     audio_prepare_cmd.add_argument("--model-id", default=DEFAULT_ELEVENLABS_MODEL)
     audio_prepare_cmd.add_argument("--output-format", default=DEFAULT_OUTPUT_FORMAT)
     audio_prepare_cmd.add_argument("--chunk-target-chars", type=positive_int, default=DEFAULT_CHUNK_TARGET_CHARS)
-    audio_prepare_cmd.add_argument("--force", action="store_true")
+    audio_prepare_cmd.add_argument(
+        "--force", action="store_true",
+        help="Deprecated: never overwrites audio; changed inputs require a new run ID.",
+    )
     audio_prepare_cmd.set_defaults(func=cmd_audio_prepare)
 
     audio_status_cmd = sub.add_parser("audio-status", help="Show audio run status")

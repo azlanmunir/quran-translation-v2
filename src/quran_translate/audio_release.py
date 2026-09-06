@@ -13,7 +13,7 @@ from typing import Any
 
 from .audio_pipeline import audio_run, audio_status, slugify, write_audio_manifest
 from .config import OUTPUT_DIR, file_sha256
-from .metadata import SURAHS, SURAH_BY_NUMBER
+from .metadata import SURAH_BY_NUMBER
 
 
 DEFAULT_RELEASE_ROOT = OUTPUT_DIR / "release" / "quran-translation-v2"

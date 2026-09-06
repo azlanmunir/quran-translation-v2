@@ -17,7 +17,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from .config import OUTPUT_DIR, PROJECT_ROOT, file_sha256, load_dotenv, text_sha256
+from .config import OUTPUT_DIR, file_sha256, load_dotenv, text_sha256
 from .db import utc_now
 from .production_packets import atomic_json, atomic_text
 from .urdu_release import RELEASE_ID, RELEASE_ROOT

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from quran_translate.production_packets import atomic_json
 from quran_translate.urdu_critic_benchmark import (
@@ -167,6 +167,42 @@ class UrduCriticBenchmarkTests(unittest.TestCase):
         self.assertTrue(first["terminal_provider_failure"])
         self.assertEqual(first, second)
         self.assertEqual(1, calls)
+
+    def test_fresh_success_is_cached_without_a_second_provider_call(self) -> None:
+        model = AUDITORS[0]
+        provider = Mock(return_value=(json.dumps(self.perfect_response()), {}, {}))
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            "quran_translate.urdu_critic_benchmark.PROVIDER_CALLS",
+            {model.provider: provider},
+        ):
+            first = run_model(model, Path(temp_dir))
+            second = run_model(model, Path(temp_dir))
+        self.assertEqual("complete", first["status"])
+        self.assertFalse(first["terminal_provider_failure"])
+        self.assertEqual(first, second)
+        provider.assert_called_once()
+
+    def test_terminal_attempt_survives_interruption_before_summary(self) -> None:
+        model = AUDITORS[0]
+        provider = Mock(side_effect=RuntimeError("credit_balance_exhausted"))
+
+        def interrupted_write(path, payload):
+            if payload.get("version") == "urdu-critic-benchmark-result-v2":
+                raise KeyboardInterrupt()
+            atomic_json(path, payload)
+
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            "quran_translate.urdu_critic_benchmark.PROVIDER_CALLS",
+            {model.provider: provider},
+        ):
+            root = Path(temp_dir)
+            with patch("quran_translate.urdu_critic_benchmark.atomic_json", interrupted_write):
+                with self.assertRaises(KeyboardInterrupt):
+                    run_model(model, root)
+            result = run_model(model, root)
+        self.assertEqual("failed", result["status"])
+        self.assertTrue(result["terminal_provider_failure"])
+        provider.assert_called_once()
 
 
 if __name__ == "__main__":

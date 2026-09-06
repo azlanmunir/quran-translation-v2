@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import shutil
-from pathlib import Path
 
 from quran_translate import urdu_video_production as production
 from quran_translate import urdu_video_render as renderer

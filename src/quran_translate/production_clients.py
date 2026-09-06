@@ -119,6 +119,55 @@ def submit_batch_once(client: Any, requests: list[dict[str, Any]], job_path: Pat
         })
         return state
 
+
+def reconcile_batch_submission(
+    client: Any, requests: list[dict[str, Any]], job_path: Path,
+    *, batch_id: str, evidence_path: Path,
+) -> BatchState:
+    """Adopt an operator-proven batch using read-only provider retrieval, never replay."""
+    receipt_path = job_path.with_name(job_path.name + ".submission.json")
+    audit_path = job_path.with_name(job_path.name + ".reconciliation.json")
+    request_hash = hashlib.sha256(json.dumps(
+        requests, sort_keys=True, ensure_ascii=False
+    ).encode("utf-8")).hexdigest()
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if (not isinstance(evidence, dict)
+            or evidence.get("request_hash") != request_hash
+            or evidence.get("batch_id") != batch_id
+            or not batch_id
+            or not all(isinstance(evidence.get(key), str) and evidence[key].strip()
+                       for key in ("reviewer", "payload_association", "provider_evidence"))):
+        raise ProviderError("Reconciliation requires reviewed evidence for this exact batch and payload")
+    with exclusive_lock(receipt_path.with_suffix(".lock")):
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if receipt.get("request_hash") != request_hash:
+            raise ProviderError("Reconciliation input changed")
+        if receipt.get("batch_id"):
+            if receipt["batch_id"] != batch_id:
+                raise ProviderError("Cannot replace an accepted batch ID")
+            return BatchState(batch_id, receipt["state"], receipt.get("raw", {}))
+        if receipt.get("state") != "submitting":
+            raise ProviderError("Only an uncertain submitting intent can be reconciled")
+        state = client.retrieve(batch_id)
+        if (state.batch_id != batch_id or not state.state
+                or state.raw.get("id", state.raw.get("name")) != batch_id):
+            raise ProviderError("Provider did not confirm the requested batch ID")
+        audit = {"original_receipt": receipt, "evidence": evidence,
+                 "provider_state": state.raw}
+        if audit_path.exists():
+            prior = json.loads(audit_path.read_text(encoding="utf-8"))
+            if prior.get("original_receipt") != receipt or prior.get("evidence") != evidence:
+                raise ProviderError("Conflicting reconciliation history; review before proceeding")
+        else:
+            atomic_json(audit_path, audit)
+        atomic_json(receipt_path, {
+            "request_hash": request_hash, "batch_id": batch_id,
+            "state": state.state, "raw": state.raw,
+            "reconciliation_path": str(audit_path),
+        })
+        return state
+
+
 class AnthropicBatchClient:
     """Small dependency-free client for Anthropic Message Batches."""
 

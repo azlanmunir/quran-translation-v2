@@ -378,18 +378,20 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
                 "errors_before_success": errors,
                 "raw_text": raw_text,
                 "raw_response": raw_response,
-                "terminal_provider_failure": is_terminal_provider_failure(exc),
+                "terminal_provider_failure": False,
             }
             atomic_json(path, document)
             return document
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}"[:3000])
+            terminal_provider_failure = is_terminal_provider_failure(exc)
             failed_payload: dict[str, Any] = {
                 "version": "urdu-critic-benchmark-failure-v2",
                 "input_hash": input_hash,
                 "model": asdict(model),
                 "attempt": attempt,
                 "errors": [errors[-1]],
+                "terminal_provider_failure": terminal_provider_failure,
                 "usage": usage,
                 "raw_text": raw_text,
                 "raw_response": raw_response,
@@ -400,8 +402,7 @@ def run_model(model: ModelSpec, root: Path = DEFAULT_ROOT) -> dict[str, Any]:
                 root / f"{model.candidate_id}-attempt{attempt}-FAILED.json",
                 failed_payload,
             )
-            if is_terminal_provider_failure(exc):
-                terminal_provider_failure = True
+            if terminal_provider_failure:
                 break
     document = {
         "version": "urdu-critic-benchmark-result-v2",

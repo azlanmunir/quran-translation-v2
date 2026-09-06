@@ -50,7 +50,7 @@ def reset_running(conn, run_id: str, reason: str, increment_attempts: bool = Fal
     now = utc_now()
     with conn:
         cursor = conn.execute(
-            f"""
+            """
             UPDATE translation_batches
             SET status = 'pending',
                 attempts = attempts + ?,

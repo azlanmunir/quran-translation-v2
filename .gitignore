@@ -18,6 +18,8 @@ output/
 
 # Local scratch
 scratch/
+tmp/
+.ruff_cache/
 
 # Local credentials, browser sessions, databases, and generated media
 credentials.json

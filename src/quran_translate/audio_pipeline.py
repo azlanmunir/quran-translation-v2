@@ -7,14 +7,13 @@ import re
 import sqlite3
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
 from .config import OUTPUT_DIR, file_sha256, text_sha256
 from .production_packets import atomic_json
 from .db import utc_now
 from .elevenlabs_tts import (
-    DEFAULT_ELEVENLABS_MODEL,
-    DEFAULT_OUTPUT_FORMAT,
     ElevenLabsError,
     synthesize_text,
 )
@@ -72,6 +71,13 @@ def prepare_audio_chunks(
     chunk_target_chars: int = DEFAULT_CHUNK_TARGET_CHARS,
     force: bool = False,
 ) -> dict[str, object]:
+    if force:
+        warnings.warn(
+            "audio-prepare --force is deprecated and does not overwrite audio. "
+            "Matching inputs are reused; changed inputs require a new audio_run_id.",
+            FutureWarning,
+            stacklevel=2,
+        )
     existing = conn.execute(
         "SELECT audio_run_id FROM audio_runs WHERE audio_run_id = ?",
         (audio_run_id,),

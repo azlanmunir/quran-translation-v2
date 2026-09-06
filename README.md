@@ -17,6 +17,11 @@ is preserved separately.
 - Short-form candidate selection, exact-verse episode specifications, final-audio
   semantic checks, and immutable publication receipts.
 
+The daily series now uses [short-form strategy v2](docs/SHORT_FORM_DAILY_V2.md):
+pass/fail editorial eligibility, sequential hook/verse timing, three story formats,
+an audited buffer, and age-matched per-platform learning. Historical v1 episodes
+and catalog scores are preserved, not retrospectively rewritten.
+
 The repository contains source, policies, tests, and selected frozen decision
 manifests. It does **not** contain API keys, browser sessions, production databases,
 generated books/audio/video, or live publication receipts. A clone alone cannot
@@ -49,7 +54,7 @@ python -m ruff check src scripts --select F
 ```
 
 Install FFmpeg and Rubber Band separately before running the media smoke tests.
-The clean-checkout suite passes 215 tests and skips 24 production-asset integration
+The clean-checkout suite passes 250 tests and skips 25 production-asset integration
 checks. After restoring the original matching releases/media locally, explicitly
 run those checks with:
 

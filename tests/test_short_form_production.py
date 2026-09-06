@@ -98,6 +98,36 @@ def test_episode_rejects_post_roll_into_next_verse() -> None:
         validate_episode_spec(ROOT, spec)
 
 
+@pytest.mark.production_assets
+def test_pre_roll_cannot_include_previous_spoken_word(monkeypatch):
+    from quran_translate import short_form_production as production
+    spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    spec["source"]["pre_roll_seconds"] = 0.4
+    read_json = production._read_json
+
+    def with_close_previous_word(path):
+        data = read_json(path)
+        if "words" in data and "spans" in data:
+            start = spec["source"]["clip_start_seconds"]
+            data["words"].append({"start": start - 0.5, "end": start - 0.2})
+        return data
+
+    monkeypatch.setattr(production, "_read_json", with_close_previous_word)
+    with pytest.raises(ShortFormProductionError, match="previous spoken verse"):
+        validate_episode_spec(ROOT, spec)
+
+
+def test_spoken_audio_gate_rejects_missing_first_word(monkeypatch):
+    spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    missing_first = spec["source"]["exact_translation"].split(" ", 1)[1]
+    monkeypatch.setitem(sys.modules, "mlx_whisper", SimpleNamespace(
+        transcribe=lambda *args, **kwargs: {"text": missing_first}
+    ))
+    with pytest.raises(ShortFormProductionError, match="does not match"):
+        _audit_audio_semantics(spec, Path("unused.wav"))
+
+
+
 def test_spoken_audio_gate_requires_expected_terminal_words(monkeypatch: pytest.MonkeyPatch) -> None:
     spec = json.loads(SPEC_002_PATH.read_text(encoding="utf-8"))
     fake_whisper = SimpleNamespace(

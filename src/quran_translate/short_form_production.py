@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .production_packets import atomic_json
 from .publication_receipts import preserve_publication_receipt
 from .state_safety import exclusive_lock
+from .short_form_workflow import VERSION as STRATEGY_V2, WorkflowError, validate_editorial, validate_timing
 
 
 class ShortFormProductionError(RuntimeError):
@@ -130,6 +131,8 @@ def _validate_segment_contract(
 def validate_episode_spec(project_root: Path, spec: dict[str, Any]) -> dict[str, Any]:
     """Verify the episode against the canonical catalog and forced alignment."""
 
+    if spec.get("version") not in {"quran-short-form-episode-v1", STRATEGY_V2}:
+        raise ShortFormProductionError("Unsupported episode version")
     if spec.get("production_status") != "approved_for_production":
         raise ShortFormProductionError("Episode lacks explicit production approval")
 
@@ -171,6 +174,12 @@ def validate_episode_spec(project_root: Path, spec: dict[str, Any]) -> dict[str,
         raise ShortFormProductionError("Episode reference differs from the catalog range")
     if candidate.get("exact_translation") != exact_translation:
         raise ShortFormProductionError("Episode wording differs from the canonical catalog")
+    if spec.get("version") == STRATEGY_V2:
+        try:
+            validate_editorial(spec, candidate, _sha256(catalog_path))
+            validate_timing(spec)
+        except WorkflowError as exc:
+            raise ShortFormProductionError(str(exc)) from exc
     segment_qa_path = _validate_segment_contract(
         alignment_path,
         video_path,
@@ -218,6 +227,15 @@ def validate_episode_spec(project_root: Path, spec: dict[str, Any]) -> dict[str,
             raise ShortFormProductionError("Caption timings are invalid or overlapping")
         previous_end = end
 
+    pre_roll = float(source.get("pre_roll_seconds", 0.0))
+    if not 0 <= pre_roll <= 0.5 or float(span["start"]) < pre_roll:
+        raise ShortFormProductionError("Source pre-roll must be between zero and 0.5 seconds")
+    previous_word_ends = [
+        float(row["end"]) for row in alignment.get("words", [])
+        if float(row.get("end", -1)) < float(span["start"]) - 0.001
+    ]
+    if pre_roll and previous_word_ends and float(span["start"]) - pre_roll <= max(previous_word_ends) + 0.1:
+        raise ShortFormProductionError("Source pre-roll crosses into the previous spoken verse")
     post_roll = float(source.get("post_roll_seconds", 0.0))
     if post_roll < 0.2:
         raise ShortFormProductionError("Source post-roll must protect the final spoken word")
@@ -231,7 +249,7 @@ def validate_episode_spec(project_root: Path, spec: dict[str, Any]) -> dict[str,
         and float(span["end"]) + post_roll >= min(next_word_starts) - 0.1
     ):
         raise ShortFormProductionError("Source post-roll crosses into the next spoken verse")
-    if clip_duration + post_roll >= float(spec["render"]["duration_seconds"]):
+    if clip_duration + pre_roll + post_roll >= float(spec["render"]["duration_seconds"]):
         raise ShortFormProductionError("Episode has no room for a clean closing frame")
 
     return {
@@ -296,6 +314,8 @@ def _save_layer(path: Path, image: Image.Image) -> None:
 
 
 def _render_layers(spec: dict[str, Any], layers_dir: Path) -> dict[str, Path]:
+    if spec.get("version") == STRATEGY_V2:
+        return _render_layers_v2(spec, layers_dir)
     render = spec["render"]
     width = int(render["width"])
     height = int(render["height"])
@@ -414,7 +434,7 @@ def _render_layers(spec: dict[str, Any], layers_dir: Path) -> dict[str, Path]:
     )
     draw.text(
         (94, 918),
-        creative["closing_question"],
+        creative.get("closing_question", ""),
         font=_font(regular, 28),
         fill=muted,
     )
@@ -423,12 +443,59 @@ def _render_layers(spec: dict[str, Any], layers_dir: Path) -> dict[str, Path]:
     return paths
 
 
+def _render_layers_v2(spec: dict[str, Any], layers_dir: Path) -> dict[str, Path]:
+    """One reading region per beat, with a persistent source attribution."""
+    render, creative = spec["render"], spec["creative"]
+    size = (render["width"], render["height"])
+    paths = {}
+    common = Image.new("RGBA", size)
+    draw = ImageDraw.Draw(common)
+    draw.text((84, 170), "READ THAT AGAIN", font=_font(render["font_bold"], 30),
+              fill="white", stroke_width=2, stroke_fill="black")
+    draw.text((84, 1570), f"QURAN {spec['source']['ref']}", font=_font(render["font_bold"], 38),
+              fill="white", stroke_width=2, stroke_fill="black")
+    paths["common"] = layers_dir / "common.png"
+    _save_layer(paths["common"], common)
+    beats = [("hook", creative.get("hook", ""), "A QUESTION TO CONSIDER")]
+    if creative.get("setup"):
+        beats.append(("setup", creative["setup"], "CONTEXT"))
+    beats += [(f"caption_{i}", row["text"], "THE VERSE")
+              for i, row in enumerate(spec["caption_segments"], 1)]
+    closing = creative.get("closing", "")
+    if creative.get("closing_question"):
+        closing += "\n" + creative["closing_question"]
+    beats.append(("outro", closing, "A REFLECTION"))
+    for name, text, label in beats:
+        layer = Image.new("RGBA", size)
+        draw = ImageDraw.Draw(layer)
+        if text:
+            font, wrapped = _fit_text(draw, text, render["font_bold"], 72, 46, 820, 510, 16)
+            box = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=16)
+            text_height = box[3] - box[1]
+            top = 1140 - text_height // 2
+            draw.rectangle((60, top-66, 954, top+text_height+48), fill=(0, 0, 0, 170))
+            draw.text((84, top-48), label, font=_font(render["font_bold"], 23), fill=(255, 116, 104))
+            draw.multiline_text((84, top), wrapped, font=font, spacing=16, fill="white")
+        paths[name] = layers_dir / f"{name}.png"
+        _save_layer(paths[name], layer)
+    return paths
+
+
+def _srt_timestamp(seconds: float) -> str:
+    milliseconds = round(seconds * 1000)
+    hours, milliseconds = divmod(milliseconds, 3600000)
+    minutes, milliseconds = divmod(milliseconds, 60000)
+    seconds, milliseconds = divmod(milliseconds, 1000)
+    return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+
+
 def _extract_audio(spec: dict[str, Any], video_path: Path, audio_path: Path) -> None:
     source = spec["source"]
     duration = (
         float(source["clip_end_seconds"])
         - float(source["clip_start_seconds"])
         + float(source.get("post_roll_seconds", 0.0))
+        + float(source.get("pre_roll_seconds", 0.0))
     )
     _run(
         [
@@ -440,7 +507,7 @@ def _extract_audio(spec: dict[str, Any], video_path: Path, audio_path: Path) -> 
             "-i",
             str(video_path),
             "-ss",
-            f"{float(source['clip_start_seconds']):.3f}",
+            f"{float(source['clip_start_seconds']) - float(source.get('pre_roll_seconds', 0)):.3f}",
             "-t",
             f"{duration:.3f}",
             "-map",
@@ -464,10 +531,12 @@ def _audit_audio_semantics(spec: dict[str, Any], audio_path: Path) -> dict[str, 
             "mlx-whisper is required for spoken-audio semantic QA"
         ) from exc
 
-    model = "mlx-community/whisper-tiny.en-mlx"
+    model = "mlx-community/whisper-large-v3-turbo"
     payload = mlx_whisper.transcribe(
         str(audio_path),
         path_or_hf_repo=model,
+        language="en",
+        word_timestamps=True,
         verbose=False,
     )
     transcript = str(payload.get("text", "")).strip()
@@ -510,6 +579,9 @@ def _render_video(
         *(layers[f"caption_{i}"] for i in range(1, len(spec["caption_segments"]) + 1)),
         layers["outro"],
     ]
+    v2 = spec.get("version") == STRATEGY_V2
+    if v2 and "setup" in layers:
+        layer_order.insert(2, layers["setup"])
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -523,6 +595,10 @@ def _render_video(
         "-i",
         str(background),
     ]
+    motion = v2 and spec["visual"].get("background_type") == "video"
+    if motion:
+        command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                   "-stream_loop", "-1", "-i", str(background)]
     for layer in layer_order:
         command.extend(["-loop", "1", "-framerate", str(fps), "-i", str(layer)])
     audio_index = 1 + len(layer_order)
@@ -531,6 +607,9 @@ def _render_video(
     quote_end = float(spec["source"]["clip_end_seconds"]) - float(
         spec["source"]["clip_start_seconds"]
     )
+    offset = float(spec["creative"].get("quote_start_seconds", 0)) if v2 else 0.0
+    pre_roll = float(spec["source"].get("pre_roll_seconds", 0))
+    quote_end += offset + pre_roll
     audio_end = quote_end + float(spec["source"].get("post_roll_seconds", 0.0))
     filter_parts = [
         (
@@ -546,11 +625,18 @@ def _render_video(
         "[base][common]overlay=0:0:format=auto[v1]",
     ]
     current = "v1"
+    if motion:
+        filter_parts[0] = (
+            f"[0:v]scale={render['width']}:{render['height']}:force_original_aspect_ratio=increase,"
+            f"crop={render['width']}:{render['height']},fps={fps},setsar=1,format=yuv420p[base]"
+        )
     input_index = 2
     hook_end = float(spec["creative"].get("hook_end_seconds", 4.8))
     windows = [(0.0, hook_end)]
+    if v2 and "setup" in layers:
+        windows.append((hook_end, offset))
     windows.extend(
-        (float(row["start_seconds"]), float(row["end_seconds"]))
+        (offset + pre_roll + float(row["start_seconds"]), offset + pre_roll + float(row["end_seconds"]))
         for row in spec["caption_segments"]
     )
     windows.append((quote_end, duration))
@@ -558,14 +644,16 @@ def _render_video(
         label = f"layer{layer_number}"
         next_video = f"v{layer_number}"
         filter_parts.append(f"[{input_index}:v]format=rgba[{label}]")
+        enable = (f"gte(t,{start:.3f})*lt(t,{end:.3f})" if v2
+                  else f"between(t,{start:.3f},{end:.3f})")
         filter_parts.append(
             f"[{current}][{label}]overlay=0:0:format=auto:"
-            f"enable='between(t,{start:.3f},{end:.3f})'[{next_video}]"
+            f"enable='{enable}'[{next_video}]"
         )
         current = next_video
         input_index += 1
     filter_parts.append(
-        f"[{audio_index}:a]apad=pad_dur={max(0.0, duration - audio_end):.3f},"
+        f"[{audio_index}:a]adelay={round(offset * 1000)}:all=1,apad=pad_dur={max(0.0, duration - audio_end):.3f},"
         f"afade=t=out:st={max(0.0, audio_end - 0.12):.3f}:d=0.12[aout]"
     )
     command.extend(
@@ -605,9 +693,17 @@ def _render_video(
 
 
 def _write_platform_copy(spec: dict[str, Any], output_dir: Path) -> None:
-    for platform in ("instagram", "tiktok"):
+    platforms = ("instagram", "tiktok", "youtube", "youtube_title") if spec.get("version") == STRATEGY_V2 else ("instagram", "tiktok")
+    for platform in platforms:
         copy = str(spec["platform_copy"][platform]).strip() + "\n"
         (output_dir / f"caption-{platform}.txt").write_text(copy, encoding="utf-8")
+    if spec.get("version") == STRATEGY_V2:
+        offset = float(spec["creative"].get("quote_start_seconds", 0))
+        offset += float(spec["source"].get("pre_roll_seconds", 0))
+        cues = [f"{i}\n{_srt_timestamp(offset + row['start_seconds'])} --> "
+                f"{_srt_timestamp(offset + row['end_seconds'])}\n{row['text']}\n"
+                for i, row in enumerate(spec["caption_segments"], 1)]
+        (output_dir / "captions.en.srt").write_text("\n".join(cues), encoding="utf-8")
 
 
 def _audit_video(
@@ -702,6 +798,10 @@ def _audit_video(
             "contact_sheet": str(contact_sheet),
         },
     }
+    if spec.get("version") == STRATEGY_V2:
+        qa["creative_timing"] = validate_timing(spec)
+        qa["creative_review_required"] = ["visual_review", "audio_review", "comprehension_review"]
+        qa["artifacts"]["youtube"] = {"path": str(exports["youtube"]), "sha256": _sha256(exports["youtube"])}
     (output_dir / "QA.json").write_text(
         json.dumps(qa, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -732,6 +832,9 @@ def _render_short_form_episode(
         "instagram": output_dir / f"{spec['episode_id']}-instagram.mp4",
         "tiktok": output_dir / f"{spec['episode_id']}-tiktok.mp4",
     }
+    if spec.get("version") == STRATEGY_V2:
+        exports["youtube"] = output_dir / f"{spec['episode_id']}-youtube.mp4"
+        atomic_json(output_dir / "EPISODE_SPEC.json", spec)
     for export in exports.values():
         shutil.copy2(master, export)
     _write_platform_copy(spec, output_dir)
@@ -769,6 +872,8 @@ def _render_short_form_episode(
         "qa_path": str(output_dir / "QA.json"),
         "source_receipt_path": str(output_dir / "SOURCE_RECEIPT.json"),
     }
+    if spec.get("version") == STRATEGY_V2:
+        publication["accounts"]["youtube"] = {"channel_id": "UCBz2Ytup0829hVv1hza8yfg", "state": "not_uploaded"}
     (output_dir / "PUBLICATION_STATE.json").write_text(
         json.dumps(publication, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -831,6 +936,8 @@ def render_short_form_episode(project_root: Path, spec_path: Path) -> dict[str, 
                     "publication": _read_json(destination / "PUBLICATION_STATE.json"),
                     "reused": True}
         replaces = spec.get("replaces_episode_id")
+        if spec.get("version") == "quran-short-form-episode-v1":
+            raise ShortFormProductionError("New episodes require strategy v2; preserve existing v1 renders")
         if replaces:
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", str(replaces)):
                 raise ShortFormProductionError("Invalid replacement episode ID")

@@ -1,0 +1,54 @@
+{
+  "version": "quran-short-form-strategy-v2",
+  "strategy_name": "Read That Again: Understand, Share, Return",
+  "language": "en",
+  "audience": "People unfamiliar with the Quran; accessible and appropriate for ages 13-45. Select human situations, never infer an individual's religion.",
+  "formats": ["everyday_dilemma", "unexpected_principle", "short_narrative"],
+  "selection_order": ["real_situation", "faithful_complete_passage", "distinctive_insight", "opening_and_payoff", "one_experiment"],
+  "eligibility_checks": ["complete_thought", "context_preserved", "religious_meaning_preserved", "accessible_without_prior_knowledge", "claims_supported", "teen_safe", "risk_flags_resolved"],
+  "ranking": "No weighted engagement score. Pass eligibility first, then compare specific situation, insight, clarity, visual opportunity, and evidence. Preserve original scores only as historical hypotheses.",
+  "creative": {
+    "max_hook_seconds": 1.8,
+    "max_closing_seconds": 1.5,
+    "max_closing_fraction": 0.2,
+    "one_dominant_reading_task": true,
+    "question_optional": true,
+    "source_visible_from_start": true,
+    "never_speed_or_clip_quote_to_fit": true,
+    "visual_options": ["purposeful_motion", "restrained_still_control"],
+    "boundary_note": "Timing caps govern commentary only. Extend, contextualize, or select another complete passage when comprehension requires it."
+  },
+  "measurement": {
+    "windows_hours": [24, 72, 168],
+    "tolerances_hours": [6, 12, 24],
+    "duration_bands_seconds": [15, 30],
+    "unknown_is_not_zero": true,
+    "minimum_comparison_posts_per_variant": 5,
+    "minimum_comparison_views_per_variant": 1000,
+    "minimums_are_review_triggers_not_significance": true,
+    "weekly_review_days": 7
+  },
+  "operations": {
+    "daily_publications": 1,
+    "buffer_target": 3,
+    "weak_metrics_never_stop_series": true,
+    "failed_integrity_never_publish": true,
+    "no_duplicate_uploads": true,
+    "reviewed_buffer_not_auto_approved_briefs": true
+  },
+  "platforms": {
+    "tiktok": {"priority": ["initial_retention", "average_watch_seconds", "completion_rate", "shares", "follows"], "packaging": "Conversational opening and concise specific caption; no watermark, engagement bait, or invented trend."},
+    "instagram": {"priority": ["non_follower_reach", "shares", "saves", "average_watch_seconds", "follows"], "packaging": "Readable cover, natural shareable insight; optional Trial Reel only when available, with trial distribution explicitly recorded."},
+    "youtube": {"priority": ["chose_to_view_rate", "engaged_views", "average_watch_seconds", "average_percentage_viewed", "follows"], "packaging": "Specific title and source; related long-form translation when supported and verified; no changes to long-form media or playlists."}
+  },
+  "experiment_cycle": [
+    {"days": 10, "variable": "opening", "variants": ["scenario_first", "verse_first"], "fixed": "everyday_dilemma; restrained still; brief ending; similar quote durations; situations balanced across variants"},
+    {"days": 10, "variable": "visual_treatment", "variants": ["restrained_still_control", "purposeful_motion"], "fixed": "everyday_dilemma; retain opening selected in weekly review or baseline if inconclusive; similar durations"},
+    {"days": 10, "variable": "format", "variants": ["unexpected_principle", "short_narrative"], "fixed": "retain opening and visual baseline; balance topics and durations; format comparisons remain exploratory"}
+  ],
+  "sources": [
+    "https://support.tiktok.com/en/using-tiktok/exploring-videos/how-tiktok-recommends-content",
+    "https://support.google.com/youtube/answer/11914225?co=YOUTUBE._YTVideoType%3Dshorts&hl=en",
+    "https://about.fb.com/news/2024/12/trial-reels-try-content-non-followers-first-see-what-perfoms-best/"
+  ]
+}

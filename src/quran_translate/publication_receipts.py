@@ -40,6 +40,15 @@ def record_publication_state(
         previous = json.loads(raw)
         if previous.get("episode_id") != state.get("episode_id"):
             raise ValueError("Publication receipt episode changed")
+        spec_path = directory / "EPISODE_SPEC.json"
+        if spec_path.exists():
+            from .short_form_workflow import VERSION, read_json, validate_ready
+
+            if read_json(spec_path).get("version") == VERSION and any(
+                account.get("state") not in {"not_uploaded", "blocked"}
+                for account in state.get("accounts", {}).values()
+            ):
+                validate_ready(directory)
         _snapshot(directory, previous)
         _snapshot(directory, state)
         atomic_json(path, state)
